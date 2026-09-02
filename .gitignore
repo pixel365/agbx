@@ -1,0 +1,7 @@
+vendor/
+build/
+bin/
+dist/
+
+*.out
+*.log
