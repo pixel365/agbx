@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"testing"
 
@@ -8,6 +10,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestForwardTerminalResizeSkipsNonTerminalInput(t *testing.T) {
+	client := &Client{}
+
+	stop, err := client.forwardTerminalResize(
+		context.Background(),
+		"container",
+		bytes.NewReader(nil),
+	)
+
+	require.NoError(t, err)
+	stop()
+}
 
 func TestMakeRawInputRestoresTerminal(t *testing.T) {
 	input, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)

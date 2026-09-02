@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/moby/moby/api/types/container"
@@ -144,6 +147,11 @@ func (c *Client) runContainer(
 	); err != nil {
 		return fmt.Errorf("start container: %w", err)
 	}
+	stopTerminalResize, err := c.forwardTerminalResize(ctx, containerID, request.Input)
+	if err != nil {
+		return err
+	}
+	defer stopTerminalResize()
 
 	go copyInput(attached, request.Input)
 
@@ -173,6 +181,67 @@ func (c *Client) runContainer(
 	}
 
 	return waitError
+}
+
+func (c *Client) forwardTerminalResize(
+	ctx context.Context,
+	containerID string,
+	input io.Reader,
+) (func(), error) {
+	terminal, ok := input.(terminalInput)
+	if !ok || !term.IsTerminal(terminal.Fd()) {
+		return func() {}, nil
+	}
+	if err := c.resizeTerminal(ctx, containerID, terminal); err != nil {
+		return nil, err
+	}
+
+	resizeContext, cancel := context.WithCancel(ctx)
+	resizeSignals := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	signal.Notify(resizeSignals, syscall.SIGWINCH)
+	go func() {
+		defer close(done)
+		defer signal.Stop(resizeSignals)
+
+		for {
+			select {
+			case <-resizeContext.Done():
+				return
+			case <-resizeSignals:
+				_ = c.resizeTerminal(resizeContext, containerID, terminal)
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}, nil
+}
+
+func (c *Client) resizeTerminal(
+	ctx context.Context,
+	containerID string,
+	terminal terminalInput,
+) error {
+	width, height, err := term.GetSize(terminal.Fd())
+	if err != nil {
+		return fmt.Errorf("get terminal size: %w", err)
+	}
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("get terminal size: invalid dimensions %dx%d", width, height)
+	}
+
+	_, err = c.api.ContainerResize(ctx, containerID, mobyclient.ContainerResizeOptions{
+		Height: uint(height),
+		Width:  uint(width),
+	})
+	if err != nil {
+		return fmt.Errorf("resize container terminal: %w", err)
+	}
+
+	return nil
 }
 
 func copyInput(attached mobyclient.ContainerAttachResult, input io.Reader) {
