@@ -12,6 +12,8 @@ import (
 )
 
 const (
+	checkCommand   = "check"
+	configFlag     = "--config"
 	validConfig    = "version: 1\n"
 	versionCommand = "version"
 )
@@ -34,7 +36,7 @@ func TestRootCommandLoadsExplicitConfigFile(t *testing.T) {
 
 	var out bytes.Buffer
 	cmd := NewRootCommand(t.Context())
-	cmd.SetArgs([]string{"--config", filePath, versionCommand})
+	cmd.SetArgs([]string{configFlag, filePath, versionCommand})
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
@@ -45,7 +47,47 @@ func TestRootCommandRejectsMissingExplicitConfigFile(t *testing.T) {
 	missingFile := filepath.Join(t.TempDir(), "missing.yaml")
 
 	cmd := NewRootCommand(t.Context())
-	cmd.SetArgs([]string{"--config", missingFile, versionCommand})
+	cmd.SetArgs([]string{configFlag, missingFile, versionCommand})
+	cmd.SetErr(io.Discard)
+
+	require.Error(t, cmd.Execute())
+}
+
+func TestRootCommandChecksDefaultConfigFile(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	var out bytes.Buffer
+	cmd := NewRootCommand(t.Context())
+	cmd.SetArgs([]string{checkCommand})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, "Configuration is valid.\n", out.String())
+}
+
+func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(filePath, []byte(validConfig), 0o600))
+
+	var out bytes.Buffer
+	cmd := NewRootCommand(t.Context())
+	cmd.SetArgs([]string{configFlag, filePath, checkCommand})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, "Configuration is valid.\n", out.String())
+}
+
+func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
+	changeWorkingDirectory(t, t.TempDir())
+
+	cmd := NewRootCommand(t.Context())
+	cmd.SetArgs([]string{checkCommand})
 	cmd.SetErr(io.Discard)
 
 	require.Error(t, cmd.Execute())
