@@ -13,6 +13,7 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/version"
 	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
+	"github.com/pixel365/agbx/internal/provider"
 )
 
 type dockerClient interface {
@@ -28,6 +29,7 @@ func NewRootCommand() *cobra.Command {
 
 func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 	var configFile string
+	providers := provider.NewRegistry()
 
 	cmd := &cobra.Command{
 		Use: "agbx [command]",
@@ -55,14 +57,14 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 
 	cmd.AddCommand(
 		initcommand.NewInitCommand(),
-		prepare.NewPrepareCommand(),
+		prepare.NewPrepareCommand(providers),
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
 			return newDockerClient()
 		}),
 		run.NewRunCommand(func() (run.DockerClient, error) {
 			return newDockerClient()
-		}),
+		}, providers),
 	)
 
 	return cmd

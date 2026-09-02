@@ -10,9 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/docker"
+	"github.com/pixel365/agbx/internal/provider"
 )
 
-const validConfig = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
+const (
+	providerName = "claude"
+	validConfig  = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
+)
 
 func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	directory := t.TempDir()
@@ -23,13 +27,15 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	)
 
 	dockerClient := &recordingDockerClient{}
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(testProvider{}))
 	cmd := NewRunCommand(func() (DockerClient, error) {
 		return dockerClient, nil
-	})
-	cmd.SetArgs([]string{"claude", "--", "--help"})
+	}, providers)
+	cmd.SetArgs([]string{providerName, "--", "--help"})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	assert.Equal(t, []string{"claude", "--help"}, dockerClient.request.Command)
+	assert.Equal(t, []string{providerName, "--help"}, dockerClient.request.Command)
 	assert.Equal(t, "example/image:1.0@sha256:abc", dockerClient.request.Image)
 	assert.Equal(t, directory, dockerClient.request.WorkingDirectory)
 	assert.NotNil(t, dockerClient.request.Input)
@@ -40,6 +46,12 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 type recordingDockerClient struct {
 	request docker.RunRequest
 	closed  bool
+}
+
+type testProvider struct{}
+
+func (testProvider) Name() string {
+	return providerName
 }
 
 func (c *recordingDockerClient) Run(_ context.Context, request docker.RunRequest) error {

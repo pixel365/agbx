@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/internal/docker"
+	"github.com/pixel365/agbx/internal/provider"
 )
 
 type DockerClient interface {
@@ -18,12 +20,20 @@ type DockerClient interface {
 
 type DockerClientFunc func() (DockerClient, error)
 
-func NewRunCommand(newDockerClient DockerClientFunc) *cobra.Command {
+func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registry) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run <command> [arguments...]",
 		Short: "Run a command in the configured container",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := providers.Lookup(args[0]); err != nil {
+				if errors.Is(err, provider.ErrNotFound) {
+					return fmt.Errorf("provider %q is not supported", args[0])
+				}
+
+				return err
+			}
+
 			configuration, err := commandconfig.Load(cmd)
 			if err != nil {
 				return err
