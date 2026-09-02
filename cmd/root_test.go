@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/docker"
+	"github.com/pixel365/agbx/internal/provider/claude"
 )
 
 const (
@@ -32,6 +33,13 @@ func TestRootCommandAllowsMissingDefaultConfigFile(t *testing.T) {
 
 	require.NoError(t, cmd.Execute())
 	assert.Equal(t, "dev\n", out.String())
+}
+
+func TestNewProviderRegistryRegistersClaude(t *testing.T) {
+	registeredProvider, err := mustProviderRegistry().Lookup(claude.New().Name())
+
+	require.NoError(t, err)
+	assert.Equal(t, claude.New(), registeredProvider)
 }
 
 func TestRootCommandLoadsExplicitConfigFile(t *testing.T) {

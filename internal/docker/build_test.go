@@ -37,3 +37,13 @@ func TestDisplayBuildOutputWritesBuildStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Step 1\nDone\n", output.String())
 }
+
+func TestImageBuildArgs(t *testing.T) {
+	arguments := map[string]string{
+		"BASE_IMAGE": "example/image:1.0",
+	}
+
+	buildArgs := imageBuildArgs(arguments)
+
+	assert.Equal(t, "example/image:1.0", *buildArgs["BASE_IMAGE"])
+}

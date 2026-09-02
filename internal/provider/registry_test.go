@@ -9,7 +9,13 @@ import (
 	"github.com/pixel365/agbx/internal/config"
 )
 
-const providerName = "claude"
+const (
+	baseImageArgument  = "BASE_IMAGE"
+	baseImageReference = "example/image:1.0"
+	exampleDockerfile  = "FROM example/image:1.0@sha256:abc"
+	imageTag           = "1.0"
+	providerName       = "claude"
+)
 
 type testProvider struct {
 	name string
@@ -61,8 +67,8 @@ func TestRegistryReturnsNotFoundForUnknownProvider(t *testing.T) {
 }
 
 func TestBuildRecipePreparedImageReference(t *testing.T) {
-	image := config.Image{Name: "example/image", Tag: "1.0", Digest: "sha256:abc"}
-	recipe := BuildRecipe{Dockerfile: "FROM example/image:1.0@sha256:abc"}
+	image := config.Image{Name: "example/image", Tag: imageTag, Digest: "sha256:abc"}
+	recipe := BuildRecipe{Dockerfile: exampleDockerfile}
 
 	firstReference := recipe.PreparedImageReference(providerName, image)
 	secondReference := recipe.PreparedImageReference(providerName, image)
@@ -78,5 +84,30 @@ func TestBuildRecipePreparedImageReference(t *testing.T) {
 			providerName,
 			image,
 		),
+	)
+	assert.NotEqual(
+		t,
+		firstReference,
+		BuildRecipe{
+			Dockerfile: exampleDockerfile,
+			BuildArgs:  map[string]string{baseImageArgument: "example/image:2.0"},
+		}.PreparedImageReference(providerName, image),
+	)
+	assert.Equal(
+		t,
+		BuildRecipe{
+			Dockerfile: exampleDockerfile,
+			BuildArgs: map[string]string{
+				baseImageArgument: baseImageReference,
+				"VERSION":         imageTag,
+			},
+		}.PreparedImageReference(providerName, image),
+		BuildRecipe{
+			Dockerfile: exampleDockerfile,
+			BuildArgs: map[string]string{
+				"VERSION":         imageTag,
+				baseImageArgument: baseImageReference,
+			},
+		}.PreparedImageReference(providerName, image),
 	)
 }

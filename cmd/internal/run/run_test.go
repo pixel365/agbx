@@ -21,7 +21,9 @@ const (
 
 func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	directory := t.TempDir()
+	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
+	t.Setenv(dataHomeEnvironmentVariable, stateHome)
 	require.NoError(
 		t,
 		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
@@ -49,10 +51,39 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 		dockerClient.request.Image,
 	)
 	assert.Equal(t, directory, dockerClient.request.WorkingDirectory)
+	assert.Equal(
+		t,
+		filepath.Join(stateHome, "agbx", "providers", providerName),
+		dockerClient.request.StateDirectory,
+	)
+	assert.NotEmpty(t, dockerClient.request.User)
 	assert.NotNil(t, dockerClient.request.Input)
 	assert.NotNil(t, dockerClient.request.Output)
 	assert.False(t, dockerClient.request.PullImage)
 	assert.True(t, dockerClient.closed)
+}
+
+func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv(dataHomeEnvironmentVariable, dataHome)
+
+	directory, err := providerStateDirectory(providerName)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dataHome, "agbx", "providers", providerName), directory)
+	info, err := os.Stat(directory)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
+func TestProviderStateDirectoryRejectsPath(t *testing.T) {
+	for _, providerName := range []string{"../claude", "claude/provider", ".", ".."} {
+		t.Run(providerName, func(t *testing.T) {
+			_, err := providerStateDirectory(providerName)
+
+			assert.Error(t, err)
+		})
+	}
 }
 
 type recordingDockerClient struct {

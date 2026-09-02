@@ -17,6 +17,7 @@ const dockerfileName = "Dockerfile"
 
 type BuildRequest struct {
 	Dockerfile string
+	BuildArgs  map[string]string
 	Output     io.Writer
 	Tag        string
 }
@@ -28,6 +29,7 @@ func (c *Client) Build(ctx context.Context, request BuildRequest) error {
 	}
 
 	build, err := c.api.ImageBuild(ctx, contextArchive, mobyclient.ImageBuildOptions{
+		BuildArgs:  imageBuildArgs(request.BuildArgs),
 		Dockerfile: dockerfileName,
 		Remove:     true,
 		Tags:       []string{request.Tag},
@@ -44,6 +46,15 @@ func (c *Client) Build(ctx context.Context, request BuildRequest) error {
 	}
 
 	return nil
+}
+
+func imageBuildArgs(arguments map[string]string) map[string]*string {
+	buildArgs := make(map[string]*string, len(arguments))
+	for name, value := range arguments {
+		buildArgs[name] = &value
+	}
+
+	return buildArgs
 }
 
 func buildContext(dockerfile string) (*bytes.Reader, error) {

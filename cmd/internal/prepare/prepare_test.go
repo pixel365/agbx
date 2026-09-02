@@ -62,9 +62,13 @@ func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 		Tag:    "1.0",
 		Digest: "sha256:abc",
 	}
-	expectedRecipe := provider.BuildRecipe{Dockerfile: "FROM " + expectedImage.Reference()}
+	expectedRecipe := provider.BuildRecipe{
+		Dockerfile: "FROM " + expectedImage.Reference(),
+		BuildArgs:  map[string]string{"BASE_IMAGE": expectedImage.Reference()},
+	}
 	assert.Equal(t, expectedImage, selectedProvider.image)
 	assert.Equal(t, expectedRecipe.Dockerfile, dockerClient.request.Dockerfile)
+	assert.Equal(t, expectedRecipe.BuildArgs, dockerClient.request.BuildArgs)
 	assert.Equal(
 		t,
 		expectedRecipe.PreparedImageReference(providerName, expectedImage),
@@ -87,7 +91,10 @@ func (testProviderInstance *testProvider) BuildRecipe(
 ) (provider.BuildRecipe, error) {
 	testProviderInstance.image = image
 
-	return provider.BuildRecipe{Dockerfile: "FROM " + image.Reference()}, nil
+	return provider.BuildRecipe{
+		Dockerfile: "FROM " + image.Reference(),
+		BuildArgs:  map[string]string{"BASE_IMAGE": image.Reference()},
+	}, nil
 }
 
 func (*testProvider) Command([]string) ([]string, error) {

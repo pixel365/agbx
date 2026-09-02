@@ -5,52 +5,37 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/moby/moby/api/types/container"
 	mobyclient "github.com/moby/moby/client"
 )
 
-const workspaceDirectory = "/workspace"
+const (
+	workspaceDirectory = "/workspace"
+	homeDirectory      = "/home/agbx"
+)
 
 type RunRequest struct {
 	Input            io.Reader
 	Output           io.Writer
 	Image            string
+	StateDirectory   string
+	User             string
 	WorkingDirectory string
 	Command          []string
 	PullImage        bool
 }
 
-func (c *Client) Run(ctx context.Context, request RunRequest) error {
+func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 	if request.PullImage {
-		pullResponse, err := c.api.ImagePull(ctx, request.Image, mobyclient.ImagePullOptions{})
-		if err != nil {
-			return fmt.Errorf("pull image %q: %w", request.Image, err)
-		}
-		if err := pullResponse.Wait(ctx); err != nil {
-			return fmt.Errorf("pull image %q: %w", request.Image, err)
+		if err := c.pullImage(ctx, request.Image); err != nil {
+			return err
 		}
 	}
 
-	createdContainer, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
-		Config: &container.Config{
-			AttachStdin:  true,
-			AttachStdout: true,
-			AttachStderr: true,
-			Cmd:          request.Command,
-			Image:        request.Image,
-			OpenStdin:    true,
-			Tty:          true,
-			WorkingDir:   workspaceDirectory,
-		},
-		HostConfig: &container.HostConfig{
-			AutoRemove: true,
-			Binds: []string{
-				request.WorkingDirectory + ":" + workspaceDirectory,
-			},
-		},
-	})
+	createdContainer, err := c.createContainer(ctx, request)
 	if err != nil {
-		return fmt.Errorf("create container: %w", err)
+		return err
 	}
 	defer func() {
 		_, _ = c.api.ContainerRemove(
@@ -60,9 +45,75 @@ func (c *Client) Run(ctx context.Context, request RunRequest) error {
 		)
 	}()
 
+	attached, err := c.attachContainer(ctx, createdContainer.ID)
+	if err != nil {
+		return err
+	}
+	defer attached.Close()
+	restoreInput, err := makeRawInput(request.Input)
+	if err != nil {
+		return fmt.Errorf("set terminal input to raw mode: %w", err)
+	}
+	defer func() {
+		if err := restoreInput(); err != nil && runErr == nil {
+			runErr = fmt.Errorf("restore terminal input: %w", err)
+		}
+	}()
+
+	return c.runContainer(ctx, createdContainer.ID, attached, request)
+}
+
+func (c *Client) pullImage(ctx context.Context, image string) error {
+	pullResponse, err := c.api.ImagePull(ctx, image, mobyclient.ImagePullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull image %q: %w", image, err)
+	}
+	if err := pullResponse.Wait(ctx); err != nil {
+		return fmt.Errorf("pull image %q: %w", image, err)
+	}
+
+	return nil
+}
+
+func (c *Client) createContainer(
+	ctx context.Context,
+	request RunRequest,
+) (mobyclient.ContainerCreateResult, error) {
+	createdContainer, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
+		Config: &container.Config{
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			Cmd:          request.Command,
+			Env:          []string{"HOME=" + homeDirectory},
+			Image:        request.Image,
+			OpenStdin:    true,
+			Tty:          true,
+			User:         request.User,
+			WorkingDir:   workspaceDirectory,
+		},
+		HostConfig: &container.HostConfig{
+			AutoRemove: true,
+			Binds: []string{
+				request.WorkingDirectory + ":" + workspaceDirectory,
+				request.StateDirectory + ":" + homeDirectory,
+			},
+		},
+	})
+	if err != nil {
+		return mobyclient.ContainerCreateResult{}, fmt.Errorf("create container: %w", err)
+	}
+
+	return createdContainer, nil
+}
+
+func (c *Client) attachContainer(
+	ctx context.Context,
+	containerID string,
+) (mobyclient.ContainerAttachResult, error) {
 	attached, err := c.api.ContainerAttach(
 		ctx,
-		createdContainer.ID,
+		containerID,
 		mobyclient.ContainerAttachOptions{
 			Stdin:  true,
 			Stdout: true,
@@ -71,16 +122,24 @@ func (c *Client) Run(ctx context.Context, request RunRequest) error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("attach to container: %w", err)
+		return mobyclient.ContainerAttachResult{}, fmt.Errorf("attach to container: %w", err)
 	}
-	defer attached.Close()
 
-	wait := c.api.ContainerWait(ctx, createdContainer.ID, mobyclient.ContainerWaitOptions{
+	return attached, nil
+}
+
+func (c *Client) runContainer(
+	ctx context.Context,
+	containerID string,
+	attached mobyclient.ContainerAttachResult,
+	request RunRequest,
+) error {
+	wait := c.api.ContainerWait(ctx, containerID, mobyclient.ContainerWaitOptions{
 		Condition: container.WaitConditionNextExit,
 	})
 	if _, err := c.api.ContainerStart(
 		ctx,
-		createdContainer.ID,
+		containerID,
 		mobyclient.ContainerStartOptions{},
 	); err != nil {
 		return fmt.Errorf("start container: %w", err)
@@ -133,4 +192,26 @@ func outputWriter(output io.Writer) io.Writer {
 	}
 
 	return output
+}
+
+type terminalInput interface {
+	Fd() uintptr
+}
+
+func makeRawInput(input io.Reader) (func() error, error) {
+	terminal, ok := input.(terminalInput)
+	if !ok || !term.IsTerminal(terminal.Fd()) {
+		return func() error {
+			return nil
+		}, nil
+	}
+
+	state, err := term.MakeRaw(terminal.Fd())
+	if err != nil {
+		return nil, err
+	}
+
+	return func() error {
+		return term.Restore(terminal.Fd(), state)
+	}, nil
 }

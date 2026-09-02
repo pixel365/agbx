@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +22,8 @@ type DockerClient interface {
 }
 
 type DockerClientFunc func() (DockerClient, error)
+
+const dataHomeEnvironmentVariable = "XDG_DATA_HOME"
 
 func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registry) *cobra.Command {
 	return &cobra.Command{
@@ -52,6 +57,14 @@ func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registr
 			if err != nil {
 				return fmt.Errorf("get current directory: %w", err)
 			}
+			stateDirectory, err := providerStateDirectory(selectedProvider.Name())
+			if err != nil {
+				return err
+			}
+			containerUser, err := currentUserIdentity()
+			if err != nil {
+				return err
+			}
 
 			dockerClient, err := newDockerClient()
 			if err != nil {
@@ -70,8 +83,59 @@ func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registr
 				Input:            cmd.InOrStdin(),
 				Output:           cmd.OutOrStdout(),
 				PullImage:        false,
+				StateDirectory:   stateDirectory,
+				User:             containerUser,
 				WorkingDirectory: workingDirectory,
 			})
 		},
 	}
+}
+
+func providerStateDirectory(providerName string) (string, error) {
+	if !isProviderNamePathComponent(providerName) {
+		return "", fmt.Errorf("invalid provider name %q", providerName)
+	}
+
+	dataHome := os.Getenv(dataHomeEnvironmentVariable)
+	if dataHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get user home directory: %w", err)
+		}
+
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+
+	directory := filepath.Join(dataHome, "agbx", "providers", providerName)
+	directory = filepath.Clean(directory)
+
+	// #nosec G703 -- providerName was validated as a single path component above.
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", fmt.Errorf("create provider state directory %q: %w", directory, err)
+	}
+	// #nosec G302 -- This directory stores provider authentication state and requires execute permission.
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return "", fmt.Errorf("set provider state directory permissions %q: %w", directory, err)
+	}
+
+	return directory, nil
+}
+
+func isProviderNamePathComponent(name string) bool {
+	return name != "" &&
+		name != "." &&
+		name != ".." &&
+		!strings.ContainsAny(name, "/\\")
+}
+
+func currentUserIdentity() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("get current user: %w", err)
+	}
+	if currentUser.Uid == "" || currentUser.Gid == "" {
+		return "", errors.New("current user UID and GID are required")
+	}
+
+	return currentUser.Uid + ":" + currentUser.Gid, nil
 }

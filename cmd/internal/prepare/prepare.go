@@ -57,6 +57,7 @@ func NewPrepareCommand(
 			imageReference := recipe.PreparedImageReference(args[0], configuration.Image)
 			if err := dockerClient.Build(cmd.Context(), docker.BuildRequest{
 				Dockerfile: recipe.Dockerfile,
+				BuildArgs:  recipe.BuildArgs,
 				Output:     cmd.OutOrStdout(),
 				Tag:        imageReference,
 			}); err != nil {
