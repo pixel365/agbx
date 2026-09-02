@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
 	"github.com/pixel365/agbx/internal/provider"
 )
@@ -52,6 +53,10 @@ type testProvider struct{}
 
 func (testProvider) Name() string {
 	return providerName
+}
+
+func (testProvider) BuildRecipe(config.Image) (provider.BuildRecipe, error) {
+	return provider.BuildRecipe{}, nil
 }
 
 func (c *recordingDockerClient) Run(_ context.Context, request docker.RunRequest) error {

@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pixel365/agbx/internal/config"
 )
 
 const providerName = "claude"
@@ -15,6 +17,10 @@ type testProvider struct {
 
 func (provider testProvider) Name() string {
 	return provider.name
+}
+
+func (testProvider) BuildRecipe(config.Image) (BuildRecipe, error) {
+	return BuildRecipe{}, nil
 }
 
 func TestRegistryLooksUpRegisteredProvider(t *testing.T) {

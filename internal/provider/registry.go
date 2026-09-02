@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/pixel365/agbx/internal/config"
 )
 
 var (
@@ -14,6 +16,7 @@ var (
 
 type Provider interface {
 	Name() string
+	BuildRecipe(config.Image) (BuildRecipe, error)
 }
 
 type Registry struct {
