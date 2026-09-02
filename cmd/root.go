@@ -7,17 +7,26 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pixel365/agbx/cmd/internal/check"
+	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/cmd/internal/initcommand"
+	"github.com/pixel365/agbx/cmd/internal/run"
 	"github.com/pixel365/agbx/cmd/internal/version"
 	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
 )
 
+type dockerClient interface {
+	check.DockerClient
+	run.DockerClient
+}
+
+type dockerClientFunc func() (dockerClient, error)
+
 func NewRootCommand(ctx context.Context) *cobra.Command {
 	return newRootCommand(ctx, newDockerClient)
 }
 
-func newRootCommand(ctx context.Context, newDockerClient check.DockerClientFunc) *cobra.Command {
+func newRootCommand(ctx context.Context, newDockerClient dockerClientFunc) *cobra.Command {
 	var configFile string
 
 	cmd := &cobra.Command{
@@ -31,17 +40,11 @@ func newRootCommand(ctx context.Context, newDockerClient check.DockerClientFunc)
 		"Path to the configuration file",
 	)
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		if cmd.Name() == "init" || cmd.Name() == "check" {
+		if cmd.Name() == "init" || cmd.Name() == "check" || cmd.Name() == "run" {
 			return nil
 		}
 
-		if cmd.Root().PersistentFlags().Changed("config") {
-			_, err := config.Load(configFile)
-
-			return err
-		}
-
-		_, err := config.LoadDefault(".")
+		_, err := commandconfig.Load(cmd)
 		if errors.Is(err, config.ErrNotFound) {
 			return nil
 		}
@@ -52,12 +55,17 @@ func newRootCommand(ctx context.Context, newDockerClient check.DockerClientFunc)
 	cmd.AddCommand(
 		initcommand.NewInitCommand(),
 		version.NewVersionCommand(),
-		check.NewCheckCommand(newDockerClient),
+		check.NewCheckCommand(func() (check.DockerClient, error) {
+			return newDockerClient()
+		}),
+		run.NewRunCommand(func() (run.DockerClient, error) {
+			return newDockerClient()
+		}),
 	)
 
 	return cmd
 }
 
-func newDockerClient() (check.DockerClient, error) {
+func newDockerClient() (dockerClient, error) {
 	return docker.NewClient()
 }

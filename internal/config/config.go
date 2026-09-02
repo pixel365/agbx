@@ -30,6 +30,15 @@ type Image struct {
 	Digest string `yaml:"digest,omitempty"`
 }
 
+func (image Image) Reference() string {
+	reference := image.Name + ":" + image.Tag
+	if image.Digest == "" {
+		return reference
+	}
+
+	return reference + "@" + image.Digest
+}
+
 func New() Config {
 	return Config{Version: currentVersion}
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 )
 
 const dockerPingTimeout = 5 * time.Second
@@ -25,16 +25,7 @@ func NewCheckCommand(newDockerClient DockerClientFunc) *cobra.Command {
 		Short: "Validate the configuration and Docker daemon",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Root().PersistentFlags().Changed("config") {
-				configFile, err := cmd.Root().PersistentFlags().GetString("config")
-				if err != nil {
-					return fmt.Errorf("get config flag: %w", err)
-				}
-
-				if _, err := config.Load(configFile); err != nil {
-					return err
-				}
-			} else if _, err := config.LoadDefault("."); err != nil {
+			if _, err := commandconfig.Load(cmd); err != nil {
 				return err
 			}
 

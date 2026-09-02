@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pixel365/agbx/cmd/internal/check"
+	"github.com/pixel365/agbx/internal/docker"
 )
 
 const (
@@ -122,7 +122,11 @@ func (availableDockerClient) Close() error {
 	return nil
 }
 
-func availableDockerClientFactory() (check.DockerClient, error) {
+func (availableDockerClient) Run(context.Context, docker.RunRequest) error {
+	return nil
+}
+
+func availableDockerClientFactory() (dockerClient, error) {
 	return availableDockerClient{}, nil
 }
 
@@ -138,7 +142,11 @@ func (unavailableDockerClient) Close() error {
 	return nil
 }
 
-func unavailableDockerClientFactory() (check.DockerClient, error) {
+func (unavailableDockerClient) Run(context.Context, docker.RunRequest) error {
+	return nil
+}
+
+func unavailableDockerClientFactory() (dockerClient, error) {
 	return unavailableDockerClient{}, nil
 }
 

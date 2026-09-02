@@ -10,12 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const validConfigYAML = "version: 1\nimage:\n  name: example/image\n  tag: latest\n"
+const (
+	exampleImageName = "example/image"
+	validConfigYAML  = "version: 1\nimage:\n  name: " + exampleImageName + "\n  tag: latest\n"
+)
 
 var validConfig = Config{
 	Version: currentVersion,
 	Image: Image{
-		Name: "example/image",
+		Name: exampleImageName,
 		Tag:  "latest",
 	},
 }
@@ -110,6 +113,18 @@ func TestConfigValidateRequiresImageTag(t *testing.T) {
 	err := configuration.Validate()
 
 	assert.EqualError(t, err, "config image tag is required")
+}
+
+func TestImageReference(t *testing.T) {
+	assert.Equal(t, exampleImageName+":1.0", Image{
+		Name: exampleImageName,
+		Tag:  "1.0",
+	}.Reference())
+	assert.Equal(t, exampleImageName+":1.0@sha256:abc", Image{
+		Name:   exampleImageName,
+		Tag:    "1.0",
+		Digest: "sha256:abc",
+	}.Reference())
 }
 
 func TestCreateWritesValidConfig(t *testing.T) {
