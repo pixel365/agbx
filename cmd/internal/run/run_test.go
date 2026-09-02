@@ -37,10 +37,21 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	assert.Equal(t, []string{providerName, "--help"}, dockerClient.request.Command)
-	assert.Equal(t, "example/image:1.0@sha256:abc", dockerClient.request.Image)
+	expectedImage := config.Image{
+		Name:   "example/image",
+		Tag:    "1.0",
+		Digest: "sha256:abc",
+	}
+	expectedRecipe := provider.BuildRecipe{Dockerfile: "FROM " + expectedImage.Reference()}
+	assert.Equal(
+		t,
+		expectedRecipe.PreparedImageReference(providerName, expectedImage),
+		dockerClient.request.Image,
+	)
 	assert.Equal(t, directory, dockerClient.request.WorkingDirectory)
 	assert.NotNil(t, dockerClient.request.Input)
 	assert.NotNil(t, dockerClient.request.Output)
+	assert.False(t, dockerClient.request.PullImage)
 	assert.True(t, dockerClient.closed)
 }
 
@@ -55,8 +66,12 @@ func (testProvider) Name() string {
 	return providerName
 }
 
-func (testProvider) BuildRecipe(config.Image) (provider.BuildRecipe, error) {
-	return provider.BuildRecipe{}, nil
+func (testProvider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
+	return provider.BuildRecipe{Dockerfile: "FROM " + image.Reference()}, nil
+}
+
+func (testProvider) Command(args []string) ([]string, error) {
+	return append([]string{providerName}, args...), nil
 }
 
 func (c *recordingDockerClient) Run(_ context.Context, request docker.RunRequest) error {

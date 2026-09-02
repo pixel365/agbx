@@ -23,6 +23,10 @@ func (testProvider) BuildRecipe(config.Image) (BuildRecipe, error) {
 	return BuildRecipe{}, nil
 }
 
+func (testProvider) Command([]string) ([]string, error) {
+	return nil, nil
+}
+
 func TestRegistryLooksUpRegisteredProvider(t *testing.T) {
 	registry := NewRegistry()
 	want := testProvider{name: providerName}

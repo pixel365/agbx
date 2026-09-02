@@ -15,8 +15,9 @@ var (
 )
 
 type Provider interface {
-	Name() string
 	BuildRecipe(config.Image) (BuildRecipe, error)
+	Command([]string) ([]string, error)
+	Name() string
 }
 
 type Registry struct {

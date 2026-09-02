@@ -90,6 +90,10 @@ func (testProviderInstance *testProvider) BuildRecipe(
 	return provider.BuildRecipe{Dockerfile: "FROM " + image.Reference()}, nil
 }
 
+func (*testProvider) Command([]string) ([]string, error) {
+	return nil, nil
+}
+
 func changeWorkingDirectory(t *testing.T, directory string) {
 	t.Helper()
 

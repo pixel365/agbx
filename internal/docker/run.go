@@ -17,15 +17,18 @@ type RunRequest struct {
 	Image            string
 	WorkingDirectory string
 	Command          []string
+	PullImage        bool
 }
 
 func (c *Client) Run(ctx context.Context, request RunRequest) error {
-	pullResponse, err := c.api.ImagePull(ctx, request.Image, mobyclient.ImagePullOptions{})
-	if err != nil {
-		return fmt.Errorf("pull image %q: %w", request.Image, err)
-	}
-	if err := pullResponse.Wait(ctx); err != nil {
-		return fmt.Errorf("pull image %q: %w", request.Image, err)
+	if request.PullImage {
+		pullResponse, err := c.api.ImagePull(ctx, request.Image, mobyclient.ImagePullOptions{})
+		if err != nil {
+			return fmt.Errorf("pull image %q: %w", request.Image, err)
+		}
+		if err := pullResponse.Wait(ctx); err != nil {
+			return fmt.Errorf("pull image %q: %w", request.Image, err)
+		}
 	}
 
 	createdContainer, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
