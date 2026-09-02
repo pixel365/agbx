@@ -26,7 +26,7 @@ func TestRootCommandAllowsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 
 	var out bytes.Buffer
-	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
+	cmd := newRootCommand(availableDockerClientFactory)
 	cmd.SetArgs([]string{versionCommand})
 	cmd.SetOut(&out)
 
@@ -39,7 +39,7 @@ func TestRootCommandLoadsExplicitConfigFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(validConfig), 0o600))
 
 	var out bytes.Buffer
-	cmd := NewRootCommand(t.Context())
+	cmd := NewRootCommand()
 	cmd.SetArgs([]string{configFlag, filePath, versionCommand})
 	cmd.SetOut(&out)
 
@@ -50,7 +50,7 @@ func TestRootCommandLoadsExplicitConfigFile(t *testing.T) {
 func TestRootCommandRejectsMissingExplicitConfigFile(t *testing.T) {
 	missingFile := filepath.Join(t.TempDir(), "missing.yaml")
 
-	cmd := NewRootCommand(t.Context())
+	cmd := NewRootCommand()
 	cmd.SetArgs([]string{configFlag, missingFile, versionCommand})
 	cmd.SetErr(io.Discard)
 
@@ -66,7 +66,7 @@ func TestRootCommandChecksDefaultConfigFile(t *testing.T) {
 	)
 
 	var out bytes.Buffer
-	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
+	cmd := newRootCommand(availableDockerClientFactory)
 	cmd.SetArgs([]string{checkCommand})
 	cmd.SetOut(&out)
 
@@ -79,7 +79,7 @@ func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(validConfig), 0o600))
 
 	var out bytes.Buffer
-	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
+	cmd := newRootCommand(availableDockerClientFactory)
 	cmd.SetArgs([]string{configFlag, filePath, checkCommand})
 	cmd.SetOut(&out)
 
@@ -90,7 +90,7 @@ func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 
-	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
+	cmd := newRootCommand(availableDockerClientFactory)
 	cmd.SetArgs([]string{checkCommand})
 	cmd.SetErr(io.Discard)
 
@@ -105,7 +105,7 @@ func TestRootCommandRejectsUnavailableDockerDaemon(t *testing.T) {
 		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
 	)
 
-	cmd := newRootCommand(t.Context(), unavailableDockerClientFactory)
+	cmd := newRootCommand(unavailableDockerClientFactory)
 	cmd.SetArgs([]string{checkCommand})
 	cmd.SetErr(io.Discard)
 

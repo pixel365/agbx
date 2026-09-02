@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 
 	"github.com/spf13/cobra"
@@ -9,6 +8,7 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/check"
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/cmd/internal/initcommand"
+	"github.com/pixel365/agbx/cmd/internal/prepare"
 	"github.com/pixel365/agbx/cmd/internal/run"
 	"github.com/pixel365/agbx/cmd/internal/version"
 	"github.com/pixel365/agbx/internal/config"
@@ -22,11 +22,11 @@ type dockerClient interface {
 
 type dockerClientFunc func() (dockerClient, error)
 
-func NewRootCommand(ctx context.Context) *cobra.Command {
-	return newRootCommand(ctx, newDockerClient)
+func NewRootCommand() *cobra.Command {
+	return newRootCommand(newDockerClient)
 }
 
-func newRootCommand(ctx context.Context, newDockerClient dockerClientFunc) *cobra.Command {
+func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 	var configFile string
 
 	cmd := &cobra.Command{
@@ -40,7 +40,8 @@ func newRootCommand(ctx context.Context, newDockerClient dockerClientFunc) *cobr
 		"Path to the configuration file",
 	)
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		if cmd.Name() == "init" || cmd.Name() == "check" || cmd.Name() == "run" {
+		switch cmd.Name() {
+		case "init", "check", "run":
 			return nil
 		}
 
@@ -54,6 +55,7 @@ func newRootCommand(ctx context.Context, newDockerClient dockerClientFunc) *cobr
 
 	cmd.AddCommand(
 		initcommand.NewInitCommand(),
+		prepare.NewPrepareCommand(),
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
 			return newDockerClient()
