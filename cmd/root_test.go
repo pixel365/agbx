@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pixel365/agbx/cmd/internal/check"
 )
 
 const (
@@ -22,7 +26,7 @@ func TestRootCommandAllowsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 
 	var out bytes.Buffer
-	cmd := NewRootCommand(t.Context())
+	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
 	cmd.SetArgs([]string{versionCommand})
 	cmd.SetOut(&out)
 
@@ -62,12 +66,12 @@ func TestRootCommandChecksDefaultConfigFile(t *testing.T) {
 	)
 
 	var out bytes.Buffer
-	cmd := NewRootCommand(t.Context())
+	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
 	cmd.SetArgs([]string{checkCommand})
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
-	assert.Equal(t, "Configuration is valid.\n", out.String())
+	assert.Equal(t, "Configuration is valid.\nDocker daemon is available.\n", out.String())
 }
 
 func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
@@ -75,22 +79,67 @@ func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(validConfig), 0o600))
 
 	var out bytes.Buffer
-	cmd := NewRootCommand(t.Context())
+	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
 	cmd.SetArgs([]string{configFlag, filePath, checkCommand})
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
-	assert.Equal(t, "Configuration is valid.\n", out.String())
+	assert.Equal(t, "Configuration is valid.\nDocker daemon is available.\n", out.String())
 }
 
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 
-	cmd := NewRootCommand(t.Context())
+	cmd := newRootCommand(t.Context(), availableDockerClientFactory)
 	cmd.SetArgs([]string{checkCommand})
 	cmd.SetErr(io.Discard)
 
 	require.Error(t, cmd.Execute())
+}
+
+func TestRootCommandRejectsUnavailableDockerDaemon(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	cmd := newRootCommand(t.Context(), unavailableDockerClientFactory)
+	cmd.SetArgs([]string{checkCommand})
+	cmd.SetErr(io.Discard)
+
+	require.ErrorIs(t, cmd.Execute(), errDockerUnavailable)
+}
+
+type availableDockerClient struct{}
+
+func (availableDockerClient) Ping(context.Context) error {
+	return nil
+}
+
+func (availableDockerClient) Close() error {
+	return nil
+}
+
+func availableDockerClientFactory() (check.DockerClient, error) {
+	return availableDockerClient{}, nil
+}
+
+var errDockerUnavailable = errors.New("docker daemon is unavailable")
+
+type unavailableDockerClient struct{}
+
+func (unavailableDockerClient) Ping(context.Context) error {
+	return errDockerUnavailable
+}
+
+func (unavailableDockerClient) Close() error {
+	return nil
+}
+
+func unavailableDockerClientFactory() (check.DockerClient, error) {
+	return unavailableDockerClient{}, nil
 }
 
 func changeWorkingDirectory(t *testing.T, directory string) {

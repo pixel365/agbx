@@ -10,9 +10,14 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/initcommand"
 	"github.com/pixel365/agbx/cmd/internal/version"
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/docker"
 )
 
 func NewRootCommand(ctx context.Context) *cobra.Command {
+	return newRootCommand(ctx, newDockerClient)
+}
+
+func newRootCommand(ctx context.Context, newDockerClient check.DockerClientFunc) *cobra.Command {
 	var configFile string
 
 	cmd := &cobra.Command{
@@ -45,11 +50,14 @@ func NewRootCommand(ctx context.Context) *cobra.Command {
 	}
 
 	cmd.AddCommand(
-
 		initcommand.NewInitCommand(),
 		version.NewVersionCommand(),
-		check.NewCheckCommand(),
+		check.NewCheckCommand(newDockerClient),
 	)
 
 	return cmd
+}
+
+func newDockerClient() (check.DockerClient, error) {
+	return docker.NewClient()
 }
