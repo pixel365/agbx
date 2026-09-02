@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pixel365/agbx/cmd/internal/initcommand"
 	"github.com/pixel365/agbx/cmd/internal/version"
 	"github.com/pixel365/agbx/internal/config"
 )
@@ -24,6 +25,10 @@ func NewRootCommand(ctx context.Context) *cobra.Command {
 		"Path to the configuration file",
 	)
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		if cmd.Name() == "init" {
+			return nil
+		}
+
 		if cmd.Root().PersistentFlags().Changed("config") {
 			_, err := config.Load(configFile)
 
@@ -39,6 +44,7 @@ func NewRootCommand(ctx context.Context) *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		initcommand.NewInitCommand(),
 		version.NewVersionCommand(),
 	)
 
