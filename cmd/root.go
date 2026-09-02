@@ -18,6 +18,7 @@ import (
 
 type dockerClient interface {
 	check.DockerClient
+	prepare.DockerClient
 	run.DockerClient
 }
 
@@ -57,7 +58,9 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 
 	cmd.AddCommand(
 		initcommand.NewInitCommand(),
-		prepare.NewPrepareCommand(providers),
+		prepare.NewPrepareCommand(func() (prepare.DockerClient, error) {
+			return newDockerClient()
+		}, providers),
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
 			return newDockerClient()

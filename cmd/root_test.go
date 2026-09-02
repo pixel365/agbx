@@ -126,6 +126,10 @@ func (availableDockerClient) Run(context.Context, docker.RunRequest) error {
 	return nil
 }
 
+func (availableDockerClient) Build(context.Context, docker.BuildRequest) error {
+	return nil
+}
+
 func availableDockerClientFactory() (dockerClient, error) {
 	return availableDockerClient{}, nil
 }
@@ -143,6 +147,10 @@ func (unavailableDockerClient) Close() error {
 }
 
 func (unavailableDockerClient) Run(context.Context, docker.RunRequest) error {
+	return nil
+}
+
+func (unavailableDockerClient) Build(context.Context, docker.BuildRequest) error {
 	return nil
 }
 

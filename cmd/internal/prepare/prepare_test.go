@@ -1,6 +1,8 @@
 package prepare
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/docker"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -18,7 +21,7 @@ const (
 )
 
 func TestPrepareCommandRejectsUnsupportedProvider(t *testing.T) {
-	cmd := NewPrepareCommand(provider.NewRegistry())
+	cmd := NewPrepareCommand(newDockerClient(&recordingDockerClient{}), provider.NewRegistry())
 	cmd.SetArgs([]string{providerName})
 
 	err := cmd.Execute()
@@ -28,13 +31,13 @@ func TestPrepareCommandRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestPrepareCommandRequiresProvider(t *testing.T) {
-	cmd := NewPrepareCommand(provider.NewRegistry())
+	cmd := NewPrepareCommand(newDockerClient(&recordingDockerClient{}), provider.NewRegistry())
 	cmd.SetArgs(nil)
 
 	require.Error(t, cmd.Execute())
 }
 
-func TestPrepareCommandRejectsUnimplementedRegisteredProvider(t *testing.T) {
+func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 	directory := t.TempDir()
 	changeWorkingDirectory(t, directory)
 	require.NoError(
@@ -45,18 +48,30 @@ func TestPrepareCommandRejectsUnimplementedRegisteredProvider(t *testing.T) {
 	providers := provider.NewRegistry()
 	selectedProvider := &testProvider{}
 	require.NoError(t, providers.Register(selectedProvider))
-	cmd := NewPrepareCommand(providers)
+	dockerClient := &recordingDockerClient{}
+	cmd := NewPrepareCommand(newDockerClient(dockerClient), providers)
 	cmd.SetArgs([]string{providerName})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
 
 	err := cmd.Execute()
 
-	require.Error(t, err)
-	require.EqualError(t, err, "build for provider \"claude\" is not implemented")
-	assert.Equal(t, config.Image{
+	require.NoError(t, err)
+	expectedImage := config.Image{
 		Name:   "example/image",
 		Tag:    "1.0",
 		Digest: "sha256:abc",
-	}, selectedProvider.image)
+	}
+	expectedRecipe := provider.BuildRecipe{Dockerfile: "FROM " + expectedImage.Reference()}
+	assert.Equal(t, expectedImage, selectedProvider.image)
+	assert.Equal(t, expectedRecipe.Dockerfile, dockerClient.request.Dockerfile)
+	assert.Equal(
+		t,
+		expectedRecipe.PreparedImageReference(providerName, expectedImage),
+		dockerClient.request.Tag,
+	)
+	assert.True(t, dockerClient.closed)
+	assert.Equal(t, "Prepared provider image: "+dockerClient.request.Tag+"\n", out.String())
 }
 
 type testProvider struct {
@@ -84,4 +99,27 @@ func changeWorkingDirectory(t *testing.T, directory string) {
 	t.Cleanup(func() {
 		require.NoError(t, os.Chdir(previousDirectory))
 	})
+}
+
+type recordingDockerClient struct {
+	request docker.BuildRequest
+	closed  bool
+}
+
+func (client *recordingDockerClient) Build(_ context.Context, request docker.BuildRequest) error {
+	client.request = request
+
+	return nil
+}
+
+func (client *recordingDockerClient) Close() error {
+	client.closed = true
+
+	return nil
+}
+
+func newDockerClient(client DockerClient) DockerClientFunc {
+	return func() (DockerClient, error) {
+		return client, nil
+	}
 }

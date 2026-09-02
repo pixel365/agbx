@@ -55,3 +55,24 @@ func TestRegistryReturnsNotFoundForUnknownProvider(t *testing.T) {
 	assert.Nil(t, provider)
 	assert.ErrorIs(t, err, ErrNotFound)
 }
+
+func TestBuildRecipePreparedImageReference(t *testing.T) {
+	image := config.Image{Name: "example/image", Tag: "1.0", Digest: "sha256:abc"}
+	recipe := BuildRecipe{Dockerfile: "FROM example/image:1.0@sha256:abc"}
+
+	firstReference := recipe.PreparedImageReference(providerName, image)
+	secondReference := recipe.PreparedImageReference(providerName, image)
+
+	assert.Equal(t, firstReference, secondReference)
+	assert.NotEqual(t, firstReference, recipe.PreparedImageReference("codex", image))
+	assert.NotEqual(
+		t,
+		firstReference,
+		BuildRecipe{
+			Dockerfile: "FROM example/image:2.0",
+		}.PreparedImageReference(
+			providerName,
+			image,
+		),
+	)
+}
