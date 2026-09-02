@@ -16,7 +16,7 @@ all: tidy fieldalignment formatters
 
 formatters: goimports gofmt golines fix
 
-check: lint vet
+check: lint vet test
 
 build:
 	go $@ -trimpath -ldflags "$(LDFLAGS)" -o ./bin/agbx ./main.go

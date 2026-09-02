@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const versionCommand = "version"
+const (
+	validConfig    = "version: 1\n"
+	versionCommand = "version"
+)
 
 func TestRootCommandAllowsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
@@ -26,7 +30,7 @@ func TestRootCommandAllowsMissingDefaultConfigFile(t *testing.T) {
 
 func TestRootCommandLoadsExplicitConfigFile(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, os.WriteFile(filePath, nil, 0o600))
+	require.NoError(t, os.WriteFile(filePath, []byte(validConfig), 0o600))
 
 	var out bytes.Buffer
 	cmd := NewRootCommand(t.Context())
@@ -42,6 +46,7 @@ func TestRootCommandRejectsMissingExplicitConfigFile(t *testing.T) {
 
 	cmd := NewRootCommand(t.Context())
 	cmd.SetArgs([]string{"--config", missingFile, versionCommand})
+	cmd.SetErr(io.Discard)
 
 	require.Error(t, cmd.Execute())
 }

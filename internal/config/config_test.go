@@ -12,12 +12,12 @@ import (
 
 func TestLoadReadsFile(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), defaultYAMLFileName)
-	require.NoError(t, os.WriteFile(filePath, nil, 0o600))
+	require.NoError(t, os.WriteFile(filePath, []byte(defaultContent), 0o600))
 
 	configuration, err := Load(filePath)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{}, configuration)
+	assert.Equal(t, Config{Version: currentVersion}, configuration)
 }
 
 func TestLoadReturnsErrorForMissingFile(t *testing.T) {
@@ -39,22 +39,28 @@ func TestLoadReturnsErrorForDirectory(t *testing.T) {
 
 func TestLoadDefaultReadsYAMLFile(t *testing.T) {
 	directory := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(directory, defaultYAMLFileName), nil, 0o600))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, defaultYAMLFileName), []byte(defaultContent), 0o600),
+	)
 
 	configuration, err := LoadDefault(directory)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{}, configuration)
+	assert.Equal(t, Config{Version: currentVersion}, configuration)
 }
 
 func TestLoadDefaultReadsYMLFile(t *testing.T) {
 	directory := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(directory, defaultYMLFileName), nil, 0o600))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, defaultYMLFileName), []byte(defaultContent), 0o600),
+	)
 
 	configuration, err := LoadDefault(directory)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{}, configuration)
+	assert.Equal(t, Config{Version: currentVersion}, configuration)
 }
 
 func TestLoadDefaultReturnsNotFound(t *testing.T) {
@@ -62,4 +68,16 @@ func TestLoadDefaultReturnsNotFound(t *testing.T) {
 
 	assert.Equal(t, Config{}, configuration)
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestConfigValidateRequiresVersion(t *testing.T) {
+	err := Config{}.Validate()
+
+	assert.EqualError(t, err, "config version is required")
+}
+
+func TestConfigValidateRejectsUnsupportedVersion(t *testing.T) {
+	err := Config{Version: currentVersion + 1}.Validate()
+
+	assert.EqualError(t, err, "unsupported config version 2")
 }

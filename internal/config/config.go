@@ -6,25 +6,51 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"go.yaml.in/yaml/v4"
 )
 
 const (
 	defaultYAMLFileName = ".agbx.yaml"
 	defaultYMLFileName  = ".agbx.yml"
+	currentVersion      = 1
+	defaultContent      = "version: 1\n"
 )
 
 var ErrNotFound = errors.New("config file not found")
 
-type Config struct{}
+type Config struct {
+	Version int `yaml:"version"`
+}
+
+func (с Config) Validate() error {
+	if с.Version == 0 {
+		return errors.New("config version is required")
+	}
+	if с.Version != currentVersion {
+		return fmt.Errorf("unsupported config version %d", с.Version)
+	}
+
+	return nil
+}
 
 func Load(filePath string) (Config, error) {
 	filePath = filepath.Clean(filePath)
 	// #nosec G304 -- The CLI intentionally reads the configuration file selected by the user.
-	if _, err := os.ReadFile(filePath); err != nil {
+	contents, err := os.ReadFile(filePath)
+	if err != nil {
 		return Config{}, fmt.Errorf("read config file %q: %w", filePath, err)
 	}
 
-	return Config{}, nil
+	var configuration Config
+	if err := yaml.Unmarshal(contents, &configuration); err != nil {
+		return Config{}, fmt.Errorf("parse config file %q: %w", filePath, err)
+	}
+	if err := configuration.Validate(); err != nil {
+		return Config{}, fmt.Errorf("validate config file %q: %w", filePath, err)
+	}
+
+	return configuration, nil
 }
 
 func LoadDefault(directory string) (Config, error) {
@@ -50,7 +76,7 @@ func CreateDefault(directory string) error {
 		return fmt.Errorf("create config file %q: %w", filePath, err)
 	}
 
-	if _, err := file.WriteString("{}\n"); err != nil {
+	if _, err := file.WriteString(defaultContent); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
 			return fmt.Errorf("write config file %q: %w", filePath, errors.Join(err, closeErr))
 		}
