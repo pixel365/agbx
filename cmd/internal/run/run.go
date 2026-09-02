@@ -19,6 +19,7 @@ import (
 type DockerClient interface {
 	Run(context.Context, docker.RunRequest) error
 	Close() error
+	HasImage(context.Context, string) (bool, error)
 }
 
 type DockerClientFunc func() (DockerClient, error)
@@ -31,64 +32,86 @@ func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registr
 		Short: "Run a provider in the configured container",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selectedProvider, err := providers.Lookup(args[0])
-			if err != nil {
-				if errors.Is(err, provider.ErrNotFound) {
-					return fmt.Errorf("provider %q is not supported", args[0])
-				}
-
-				return err
-			}
-
-			configuration, err := commandconfig.Load(cmd)
-			if err != nil {
-				return err
-			}
-			recipe, err := selectedProvider.BuildRecipe(configuration.Image)
-			if err != nil {
-				return fmt.Errorf("create build recipe for provider %q: %w", args[0], err)
-			}
-			command, err := selectedProvider.Command(args[1:])
-			if err != nil {
-				return fmt.Errorf("create command for provider %q: %w", args[0], err)
-			}
-
-			workingDirectory, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("get current directory: %w", err)
-			}
-			stateDirectory, err := providerStateDirectory(selectedProvider.Name())
-			if err != nil {
-				return err
-			}
-			containerUser, err := currentUserIdentity()
-			if err != nil {
-				return err
-			}
-
-			dockerClient, err := newDockerClient()
-			if err != nil {
-				return fmt.Errorf("create Docker client: %w", err)
-			}
-			defer func() {
-				_ = dockerClient.Close()
-			}()
-
-			return dockerClient.Run(cmd.Context(), docker.RunRequest{
-				Command: command,
-				Image: recipe.PreparedImageReference(
-					selectedProvider.Name(),
-					configuration.Image,
-				),
-				Input:            cmd.InOrStdin(),
-				Output:           cmd.OutOrStdout(),
-				PullImage:        false,
-				StateDirectory:   stateDirectory,
-				User:             containerUser,
-				WorkingDirectory: workingDirectory,
-			})
+			return runProvider(cmd, args, newDockerClient, providers)
 		},
 	}
+}
+
+func runProvider(
+	cmd *cobra.Command,
+	args []string,
+	newDockerClient DockerClientFunc,
+	providers *provider.Registry,
+) error {
+	selectedProvider, err := providers.Lookup(args[0])
+	if err != nil {
+		if errors.Is(err, provider.ErrNotFound) {
+			return fmt.Errorf("provider %q is not supported", args[0])
+		}
+
+		return err
+	}
+
+	configuration, err := commandconfig.Load(cmd)
+	if err != nil {
+		return err
+	}
+	recipe, err := selectedProvider.BuildRecipe(configuration.Image)
+	if err != nil {
+		return fmt.Errorf("create build recipe for provider %q: %w", args[0], err)
+	}
+	imageReference := recipe.PreparedImageReference(
+		selectedProvider.Name(),
+		configuration.Image,
+	)
+	command, err := selectedProvider.Command(args[1:])
+	if err != nil {
+		return fmt.Errorf("create command for provider %q: %w", args[0], err)
+	}
+
+	dockerClient, err := newDockerClient()
+	if err != nil {
+		return fmt.Errorf("create Docker client: %w", err)
+	}
+	defer func() {
+		_ = dockerClient.Close()
+	}()
+
+	hasImage, err := dockerClient.HasImage(cmd.Context(), imageReference)
+	if err != nil {
+		return fmt.Errorf("check prepared image %q: %w", imageReference, err)
+	}
+	if !hasImage {
+		return fmt.Errorf(
+			"provider %q is not prepared; run %q",
+			args[0],
+			"agbx prepare "+args[0],
+		)
+	}
+
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+	stateDirectory, err := providerStateDirectory(selectedProvider.Name())
+	if err != nil {
+		return err
+	}
+	containerUser, err := currentUserIdentity()
+	if err != nil {
+		return err
+	}
+
+	return dockerClient.Run(cmd.Context(), docker.RunRequest{
+		Command:          command,
+		Image:            imageReference,
+		Input:            cmd.InOrStdin(),
+		Output:           cmd.OutOrStdout(),
+		PullImage:        false,
+		StateDirectory:   stateDirectory,
+		User:             containerUser,
+		WorkingDirectory: workingDirectory,
+	})
 }
 
 func providerStateDirectory(providerName string) (string, error) {

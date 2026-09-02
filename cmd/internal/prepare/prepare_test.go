@@ -3,6 +3,7 @@ package prepare
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,7 +49,7 @@ func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 	providers := provider.NewRegistry()
 	selectedProvider := &testProvider{}
 	require.NoError(t, providers.Register(selectedProvider))
-	dockerClient := &recordingDockerClient{}
+	dockerClient := &recordingDockerClient{hasImage: false}
 	cmd := NewPrepareCommand(newDockerClient(dockerClient), providers)
 	cmd.SetArgs([]string{providerName})
 	var out bytes.Buffer
@@ -75,7 +76,52 @@ func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 		dockerClient.request.Tag,
 	)
 	assert.True(t, dockerClient.closed)
+	assert.Equal(t, dockerClient.request.Tag, dockerClient.inspectedImage)
 	assert.Equal(t, "Prepared provider image: "+dockerClient.request.Tag+"\n", out.String())
+}
+
+func TestPrepareCommandSkipsExistingImage(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(&testProvider{}))
+	dockerClient := &recordingDockerClient{hasImage: true}
+	cmd := NewPrepareCommand(newDockerClient(dockerClient), providers)
+	cmd.SetArgs([]string{providerName})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Empty(t, dockerClient.request)
+	assert.Equal(
+		t,
+		"Provider image is already prepared: "+dockerClient.inspectedImage+"\n",
+		out.String(),
+	)
+}
+
+func TestPrepareCommandForceBuildsExistingImage(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(&testProvider{}))
+	dockerClient := &recordingDockerClient{hasImage: true}
+	cmd := NewPrepareCommand(newDockerClient(dockerClient), providers)
+	cmd.SetArgs([]string{"--force", providerName})
+	cmd.SetOut(io.Discard)
+
+	require.NoError(t, cmd.Execute())
+	assert.NotEmpty(t, dockerClient.request.Tag)
 }
 
 type testProvider struct {
@@ -113,8 +159,16 @@ func changeWorkingDirectory(t *testing.T, directory string) {
 }
 
 type recordingDockerClient struct {
-	request docker.BuildRequest
-	closed  bool
+	request        docker.BuildRequest
+	inspectedImage string
+	hasImage       bool
+	closed         bool
+}
+
+func (client *recordingDockerClient) HasImage(_ context.Context, image string) (bool, error) {
+	client.inspectedImage = image
+
+	return client.hasImage, nil
 }
 
 func (client *recordingDockerClient) Build(_ context.Context, request docker.BuildRequest) error {

@@ -15,6 +15,7 @@ import (
 type DockerClient interface {
 	Build(context.Context, docker.BuildRequest) error
 	Close() error
+	HasImage(context.Context, string) (bool, error)
 }
 
 type DockerClientFunc func() (DockerClient, error)
@@ -23,7 +24,8 @@ func NewPrepareCommand(
 	newDockerClient DockerClientFunc,
 	providers *provider.Registry,
 ) *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:   "prepare <provider>",
 		Short: "Prepare a provider environment",
 		Args:  cobra.ExactArgs(1),
@@ -55,6 +57,20 @@ func NewPrepareCommand(
 			}()
 
 			imageReference := recipe.PreparedImageReference(args[0], configuration.Image)
+			hasImage, err := dockerClient.HasImage(cmd.Context(), imageReference)
+			if err != nil {
+				return fmt.Errorf("check prepared image %q: %w", imageReference, err)
+			}
+			if hasImage && !force {
+				_, err = fmt.Fprintf(
+					cmd.OutOrStdout(),
+					"Provider image is already prepared: %s\n",
+					imageReference,
+				)
+
+				return err
+			}
+
 			if err := dockerClient.Build(cmd.Context(), docker.BuildRequest{
 				Dockerfile: recipe.Dockerfile,
 				BuildArgs:  recipe.BuildArgs,
@@ -69,4 +85,7 @@ func NewPrepareCommand(
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "Rebuild an existing provider image")
+
+	return cmd
 }

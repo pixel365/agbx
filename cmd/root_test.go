@@ -138,6 +138,10 @@ func (availableDockerClient) Build(context.Context, docker.BuildRequest) error {
 	return nil
 }
 
+func (availableDockerClient) HasImage(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func availableDockerClientFactory() (dockerClient, error) {
 	return availableDockerClient{}, nil
 }
@@ -160,6 +164,10 @@ func (unavailableDockerClient) Run(context.Context, docker.RunRequest) error {
 
 func (unavailableDockerClient) Build(context.Context, docker.BuildRequest) error {
 	return nil
+}
+
+func (unavailableDockerClient) HasImage(context.Context, string) (bool, error) {
+	return true, nil
 }
 
 func unavailableDockerClientFactory() (dockerClient, error) {

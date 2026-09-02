@@ -29,7 +29,7 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
 	)
 
-	dockerClient := &recordingDockerClient{}
+	dockerClient := &recordingDockerClient{hasImage: true}
 	providers := provider.NewRegistry()
 	require.NoError(t, providers.Register(testProvider{}))
 	cmd := NewRunCommand(func() (DockerClient, error) {
@@ -63,6 +63,37 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	assert.True(t, dockerClient.closed)
 }
 
+func TestRunCommandRejectsUnpreparedProvider(t *testing.T) {
+	directory := t.TempDir()
+	stateHome := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	t.Setenv(dataHomeEnvironmentVariable, stateHome)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	dockerClient := &recordingDockerClient{}
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(testProvider{}))
+	cmd := NewRunCommand(func() (DockerClient, error) {
+		return dockerClient, nil
+	}, providers)
+	cmd.SetArgs([]string{providerName})
+
+	err := cmd.ExecuteContext(t.Context())
+
+	require.EqualError(
+		t,
+		err,
+		"provider \"claude\" is not prepared; run \"agbx prepare claude\"",
+	)
+	assert.Empty(t, dockerClient.request)
+	assert.True(t, dockerClient.closed)
+	_, statErr := os.Stat(filepath.Join(stateHome, "agbx", "providers", providerName))
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
 func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv(dataHomeEnvironmentVariable, dataHome)
@@ -87,8 +118,13 @@ func TestProviderStateDirectoryRejectsPath(t *testing.T) {
 }
 
 type recordingDockerClient struct {
-	request docker.RunRequest
-	closed  bool
+	request  docker.RunRequest
+	hasImage bool
+	closed   bool
+}
+
+func (c *recordingDockerClient) HasImage(_ context.Context, _ string) (bool, error) {
+	return c.hasImage, nil
 }
 
 type testProvider struct{}

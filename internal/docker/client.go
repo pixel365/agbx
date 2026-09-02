@@ -24,6 +24,11 @@ type Client struct {
 	api *mobyclient.Client
 }
 
+type notFoundError interface {
+	error
+	NotFound()
+}
+
 func NewClient() (*Client, error) {
 	options := []mobyclient.Opt{mobyclient.FromEnv}
 	if os.Getenv(mobyclient.EnvOverrideHost) == "" {
@@ -50,6 +55,19 @@ func (c *Client) Ping(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *Client) HasImage(ctx context.Context, image string) (bool, error) {
+	_, err := c.api.ImageInspect(ctx, image)
+	if err == nil {
+		return true, nil
+	}
+
+	if _, ok := errors.AsType[notFoundError](err); ok {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("inspect image %q: %w", image, err)
 }
 
 func (c *Client) Close() error {
