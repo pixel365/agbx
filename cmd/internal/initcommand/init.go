@@ -6,6 +6,7 @@ import (
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/pixel365/agbx/cmd/internal/initwizard"
 	"github.com/pixel365/agbx/internal/config"
 )
 
@@ -27,7 +28,12 @@ func NewInitCommand() *cobra.Command {
 					return err
 				}
 
-				return config.CreateDefault(".")
+				configuration, err := initwizard.Default().Run(cmd.Context())
+				if err != nil {
+					return err
+				}
+
+				return config.Create(".", configuration)
 			}
 			if err != nil {
 				return err

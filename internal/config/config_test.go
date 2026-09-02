@@ -10,14 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const validConfigYAML = "version: 1\nimage:\n  name: example/image\n  tag: latest\n"
+
+var validConfig = Config{
+	Version: currentVersion,
+	Image: Image{
+		Name: "example/image",
+		Tag:  "latest",
+	},
+}
+
 func TestLoadReadsFile(t *testing.T) {
 	filePath := filepath.Join(t.TempDir(), defaultYAMLFileName)
-	require.NoError(t, os.WriteFile(filePath, []byte(defaultContent), 0o600))
+	require.NoError(t, os.WriteFile(filePath, []byte(validConfigYAML), 0o600))
 
 	configuration, err := Load(filePath)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{Version: currentVersion}, configuration)
+	assert.Equal(t, validConfig, configuration)
 }
 
 func TestLoadReturnsErrorForMissingFile(t *testing.T) {
@@ -41,26 +51,26 @@ func TestLoadDefaultReadsYAMLFile(t *testing.T) {
 	directory := t.TempDir()
 	require.NoError(
 		t,
-		os.WriteFile(filepath.Join(directory, defaultYAMLFileName), []byte(defaultContent), 0o600),
+		os.WriteFile(filepath.Join(directory, defaultYAMLFileName), []byte(validConfigYAML), 0o600),
 	)
 
 	configuration, err := LoadDefault(directory)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{Version: currentVersion}, configuration)
+	assert.Equal(t, validConfig, configuration)
 }
 
 func TestLoadDefaultReadsYMLFile(t *testing.T) {
 	directory := t.TempDir()
 	require.NoError(
 		t,
-		os.WriteFile(filepath.Join(directory, defaultYMLFileName), []byte(defaultContent), 0o600),
+		os.WriteFile(filepath.Join(directory, defaultYMLFileName), []byte(validConfigYAML), 0o600),
 	)
 
 	configuration, err := LoadDefault(directory)
 
 	require.NoError(t, err)
-	assert.Equal(t, Config{Version: currentVersion}, configuration)
+	assert.Equal(t, validConfig, configuration)
 }
 
 func TestLoadDefaultReturnsNotFound(t *testing.T) {
@@ -77,7 +87,37 @@ func TestConfigValidateRequiresVersion(t *testing.T) {
 }
 
 func TestConfigValidateRejectsUnsupportedVersion(t *testing.T) {
-	err := Config{Version: currentVersion + 1}.Validate()
+	configuration := validConfig
+	configuration.Version++
+	err := configuration.Validate()
 
 	assert.EqualError(t, err, "unsupported config version 2")
+}
+
+func TestConfigValidateRequiresImageName(t *testing.T) {
+	configuration := validConfig
+	configuration.Image.Name = ""
+
+	err := configuration.Validate()
+
+	assert.EqualError(t, err, "config image name is required")
+}
+
+func TestConfigValidateRequiresImageTag(t *testing.T) {
+	configuration := validConfig
+	configuration.Image.Tag = ""
+
+	err := configuration.Validate()
+
+	assert.EqualError(t, err, "config image tag is required")
+}
+
+func TestCreateWritesValidConfig(t *testing.T) {
+	directory := t.TempDir()
+
+	require.NoError(t, Create(directory, validConfig))
+
+	configuration, err := Load(filepath.Join(directory, defaultYAMLFileName))
+	require.NoError(t, err)
+	assert.Equal(t, validConfig, configuration)
 }

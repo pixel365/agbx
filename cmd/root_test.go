@@ -18,7 +18,7 @@ import (
 const (
 	checkCommand   = "check"
 	configFlag     = "--config"
-	validConfig    = "version: 1\n"
+	validConfig    = "version: 1\nimage:\n  name: example/image\n  tag: latest\n"
 	versionCommand = "version"
 )
 
