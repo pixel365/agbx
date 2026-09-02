@@ -40,3 +40,26 @@ func LoadDefault(directory string) (Config, error) {
 
 	return Config{}, fmt.Errorf("%w in %q", ErrNotFound, directory)
 }
+
+func CreateDefault(directory string) error {
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	filePath = filepath.Clean(filePath)
+	// #nosec G304 -- The destination is the canonical default configuration filename.
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create config file %q: %w", filePath, err)
+	}
+
+	if _, err := file.WriteString("{}\n"); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			return fmt.Errorf("write config file %q: %w", filePath, errors.Join(err, closeErr))
+		}
+
+		return fmt.Errorf("write config file %q: %w", filePath, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close config file %q: %w", filePath, err)
+	}
+
+	return nil
+}
