@@ -1,4 +1,4 @@
-GO_CONTENT := ./main.go ./cmd
+GO_CONTENT := ./main.go ./cmd ./internal
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -25,7 +25,7 @@ test:
 	go $@ -race ./...
 
 vet:
-	go $@ ./...
+	@go $@ ./...
 
 lint:
 	@golangci-lint run
