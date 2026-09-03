@@ -15,6 +15,7 @@ import (
 	"github.com/pixel365/agbx/internal/docker"
 	"github.com/pixel365/agbx/internal/provider"
 	"github.com/pixel365/agbx/internal/provider/claude"
+	"github.com/pixel365/agbx/internal/provider/codex"
 )
 
 type dockerClient interface {
@@ -81,6 +82,9 @@ func newDockerClient() (dockerClient, error) {
 func mustProviderRegistry() *provider.Registry {
 	providers := provider.NewRegistry()
 	if err := providers.Register(claude.New()); err != nil {
+		panic(err)
+	}
+	if err := providers.Register(codex.New()); err != nil {
 		panic(err)
 	}
 

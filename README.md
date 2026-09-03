@@ -3,10 +3,10 @@
 `agbx` runs coding agents in isolated Docker containers while keeping the
 current project directory available as the agent workspace.
 
-Currently, the only supported provider is
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code). The project is
-intentionally small and configuration-driven, so additional providers and
-setup steps can be added without changing the workflow.
+Supported providers are [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+and [Codex](https://learn.chatgpt.com/docs/codex/cli). The project is
+intentionally small and configuration-driven, so additional providers and setup
+steps can be added without changing the workflow.
 
 ## Requirements
 
@@ -49,6 +49,8 @@ agbx prepare claude
 agbx run claude
 ```
 
+Replace `claude` with `codex` to prepare and run Codex instead.
+
 `init` opens an interactive wizard that creates `.agbx.yaml`. It can select a
 local Docker image, search Docker Hub, or accept an image reference manually.
 For non-`latest` Docker Hub tags, the wizard resolves and stores the image
@@ -56,7 +58,7 @@ digest when possible.
 
 `prepare` builds a provider image from the configured base image. It is cached
 locally and only needs to be run again when the base image or provider setup
-changes. Use `agbx prepare claude --force` to rebuild it explicitly.
+changes. Use `agbx prepare <provider> --force` to rebuild it explicitly.
 
 `run` starts the prepared provider image interactively. The current directory
 is mounted read-write at a stable, configuration-specific path below
@@ -122,6 +124,16 @@ additional working directory. This lets Claude discover mounted instructions
 and skills. Provider-specific mounts are combined with shared mounts only for
 that provider.
 
+For Codex, `/agbx` is passed through `--add-dir`, and Codex runs with its
+`workspace-write` sandbox profile. This grants access to the additional
+directory alongside the main workspace; Docker still enforces the configured
+read-only mount permissions.
+
+On the first `agbx run codex`, Codex uses device authentication: open the
+displayed link on the host and enter its one-time code. This avoids the browser
+redirect callback being sent into the container. Explicit `login` and `logout`
+commands remain available through `agbx run codex -- <command>`.
+
 `read_only` defaults to `true`. Mount targets must be absolute paths within
 `/agbx`; overlapping targets are rejected.
 
@@ -130,7 +142,7 @@ that provider.
 | Command                              | Description                                                      |
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
-| `agbx check`                         | Validate the configuration and check Docker daemon availability. |
+| `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
 | `agbx prepare <provider>`            | Build the prepared image for a provider.                         |
 | `agbx run <provider> [arguments...]` | Run a prepared provider in the configured container.             |
 | `agbx version [-v]`                  | Print version metadata.                                          |
