@@ -18,13 +18,17 @@ Windows, use Docker Desktop configured for Linux containers.
 
 ## Installation
 
-Install the latest released version with Go:
+Download the archive for your platform from
+[GitHub Releases](https://github.com/pixel365/agbx/releases/latest), extract
+it, and add the `agbx` binary to your `PATH`.
+
+Or install the latest released version with Go:
 
 ```sh
 go install github.com/pixel365/agbx@latest
 ```
 
-Or build a checkout:
+Or build from source:
 
 ```sh
 git clone https://github.com/pixel365/agbx.git
