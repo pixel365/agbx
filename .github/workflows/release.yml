@@ -57,12 +57,13 @@ jobs:
           GORELEASER_SHA256: "41cdf49b653784b03a08013dd99e382cd5d463049e915c2d818eaed182ae6197"
         run: |
           set -euo pipefail
-          curl -sSLo goreleaser.tar.gz \
+          goreleaser_archive="${RUNNER_TEMP}/goreleaser.tar.gz"
+          curl -sSLo "${goreleaser_archive}" \
             "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz"
-          echo "${GORELEASER_SHA256}  goreleaser.tar.gz" | sha256sum -c -
-          mkdir -p goreleaser
-          tar -xzf goreleaser.tar.gz -C goreleaser
-          rm goreleaser.tar.gz
+          echo "${GORELEASER_SHA256}  ${goreleaser_archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/goreleaser"
+          tar -xzf "${goreleaser_archive}" -C "${RUNNER_TEMP}/goreleaser"
+          rm "${goreleaser_archive}"
 
       - name: Install syft
         env:
@@ -70,13 +71,14 @@ jobs:
           SYFT_SHA256: "2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f"
         run: |
           set -euo pipefail
-          curl -sSLo syft.tar.gz \
+          syft_archive="${RUNNER_TEMP}/syft.tar.gz"
+          curl -sSLo "${syft_archive}" \
             "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
-          echo "${SYFT_SHA256}  syft.tar.gz" | sha256sum -c -
-          mkdir -p syft
-          tar -xzf syft.tar.gz -C syft
-          rm syft.tar.gz
-          sudo mv syft/syft /usr/local/bin/
+          echo "${SYFT_SHA256}  ${syft_archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/syft"
+          tar -xzf "${syft_archive}" -C "${RUNNER_TEMP}/syft"
+          rm "${syft_archive}"
+          sudo mv "${RUNNER_TEMP}/syft/syft" /usr/local/bin/
 
       - name: Import GPG key
         run: |
@@ -93,7 +95,7 @@ jobs:
 
       - name: Run GoReleaser
         run: |
-          ./goreleaser/goreleaser release --clean
+          "${RUNNER_TEMP}/goreleaser/goreleaser" release --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
