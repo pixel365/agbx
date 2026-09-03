@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,11 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 		filepath.Join(stateHome, "agbx", "providers", providerName),
 		dockerClient.request.StateDirectory,
 	)
-	assert.NotEmpty(t, dockerClient.request.User)
+	if runtime.GOOS == "windows" {
+		assert.Empty(t, dockerClient.request.User)
+	} else {
+		assert.NotEmpty(t, dockerClient.request.User)
+	}
 	assert.NotNil(t, dockerClient.request.Input)
 	assert.NotNil(t, dockerClient.request.Output)
 	assert.False(t, dockerClient.request.PullImage)
@@ -149,7 +154,9 @@ func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {
 	assert.Equal(t, filepath.Join(dataHome, "agbx", "providers", providerName), directory)
 	info, err := os.Stat(directory)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
 }
 
 func TestProviderStateDirectoryRejectsPath(t *testing.T) {

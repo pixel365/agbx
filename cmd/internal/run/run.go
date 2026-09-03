@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -168,16 +167,4 @@ func isProviderNamePathComponent(name string) bool {
 		name != "." &&
 		name != ".." &&
 		!strings.ContainsAny(name, "/\\")
-}
-
-func currentUserIdentity() (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		return "", fmt.Errorf("get current user: %w", err)
-	}
-	if currentUser.Uid == "" || currentUser.Gid == "" {
-		return "", errors.New("current user UID and GID are required")
-	}
-
-	return currentUser.Uid + ":" + currentUser.Gid, nil
 }

@@ -13,7 +13,8 @@ setup steps can be added without changing the workflow.
 - Docker daemon available to the current user
 - Go 1.27 or later when building from source
 
-Release builds target Linux and macOS on `amd64` and `arm64`.
+Release builds target Linux, macOS, and Windows on `amd64` and `arm64`. On
+Windows, use Docker Desktop configured for Linux containers.
 
 ## Installation
 

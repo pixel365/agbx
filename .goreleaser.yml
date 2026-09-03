@@ -4,7 +4,7 @@ builds:
   - id: agbx
     main: ./main.go
     binary: agbx
-    goos: [linux, darwin]
+    goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
       - "-s -w"
@@ -16,6 +16,9 @@ archives:
   - id: agbx
     ids: [agbx]
     formats: ["tar.gz"]
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
     name_template: "{{ .Binary }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
 
 sboms:
