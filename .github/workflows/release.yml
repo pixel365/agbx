@@ -1,0 +1,100 @@
+name: Release
+
+permissions:
+  contents: read
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    env:
+      GPG_FINGERPRINT: 59E2D7E1C4AEFA9F891A5845C5EE073709C7B615
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@fba3fb4ead8c8e09a06f1d32ae5436e5818eff15
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Run tests
+        run: go test -race ./...
+
+      - name: Install golangci-lint
+        env:
+          GOLANGCI_LINT_VERSION: "2.13.0"
+          GOLANGCI_LINT_SHA256: "a10e8d8359d76b9e2b41da60f9d98bb26fd53c7a453caa82e0a172d6f72fd2ca"
+        run: |
+          set -euo pipefail
+          curl -sSLo golangci-lint.tar.gz \
+            "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
+          echo "${GOLANGCI_LINT_SHA256}  golangci-lint.tar.gz" | sha256sum -c -
+          tar -xzf golangci-lint.tar.gz -C /tmp
+          sudo mv /tmp/golangci-lint-*/golangci-lint /usr/local/bin/
+          rm golangci-lint.tar.gz
+
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout 5m
+
+      - name: Check formatting
+        run: golangci-lint fmt --diff
+
+      - name: Install GoReleaser
+        env:
+          GORELEASER_VERSION: "2.18.0"
+          GORELEASER_SHA256: "41cdf49b653784b03a08013dd99e382cd5d463049e915c2d818eaed182ae6197"
+        run: |
+          set -euo pipefail
+          curl -sSLo goreleaser.tar.gz \
+            "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz"
+          echo "${GORELEASER_SHA256}  goreleaser.tar.gz" | sha256sum -c -
+          mkdir -p goreleaser
+          tar -xzf goreleaser.tar.gz -C goreleaser
+          rm goreleaser.tar.gz
+
+      - name: Install syft
+        env:
+          SYFT_VERSION: "1.51.0"
+          SYFT_SHA256: "2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f"
+        run: |
+          set -euo pipefail
+          curl -sSLo syft.tar.gz \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  syft.tar.gz" | sha256sum -c -
+          mkdir -p syft
+          tar -xzf syft.tar.gz -C syft
+          rm syft.tar.gz
+          sudo mv syft/syft /usr/local/bin/
+
+      - name: Import GPG key
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          printf '%s\n' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "use-agent" >> ~/.gnupg/gpg.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          gpgconf --launch gpg-agent
+          gpg --batch --list-secret-keys "${GPG_FINGERPRINT}" > /dev/null
+
+      - name: Run GoReleaser
+        run: |
+          ./goreleaser/goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_TTY: dummy

@@ -1,0 +1,41 @@
+name: Lint
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+
+      - name: Set up Go
+        uses: actions/setup-go@fba3fb4ead8c8e09a06f1d32ae5436e5818eff15
+        with:
+          go-version-file: go.mod
+
+      - name: Install golangci-lint
+        env:
+          GOLANGCI_LINT_VERSION: "2.13.0"
+          GOLANGCI_LINT_SHA256: "a10e8d8359d76b9e2b41da60f9d98bb26fd53c7a453caa82e0a172d6f72fd2ca"
+        run: |
+          set -euo pipefail
+          curl -sSLo golangci-lint.tar.gz \
+            "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
+          echo "${GOLANGCI_LINT_SHA256}  golangci-lint.tar.gz" | sha256sum -c -
+          tar -xzf golangci-lint.tar.gz -C /tmp
+          sudo mv /tmp/golangci-lint-*/golangci-lint /usr/local/bin/
+          rm golangci-lint.tar.gz
+
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout 5m
+
+      - name: Check formatting
+        run: golangci-lint fmt --diff

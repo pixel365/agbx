@@ -1,0 +1,62 @@
+version: 2
+
+builds:
+  - id: agbx
+    main: ./main.go
+    binary: agbx
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - "-s -w"
+      - "-X github.com/pixel365/agbx/cmd/internal/version.version={{.Tag}}"
+      - "-X github.com/pixel365/agbx/cmd/internal/version.commit={{.ShortCommit}}"
+      - "-X github.com/pixel365/agbx/cmd/internal/version.releaseDate={{.Date}}"
+
+archives:
+  - id: agbx
+    ids: [agbx]
+    formats: ["tar.gz"]
+    name_template: "{{ .Binary }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+
+sboms:
+  - id: archives
+    artifacts: archive
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^Merge "
+
+checksum:
+  algorithm: sha256
+
+release:
+  github:
+    owner: pixel365
+    name: agbx
+  draft: false
+
+signs:
+  - artifacts: all
+    cmd: gpg
+    signature: "${artifact}.sig"
+    args:
+      - --batch
+      - --local-user
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - --output
+      - "${signature}"
+      - --armor
+      - --detach-sign
+      - --pinentry-mode
+      - loopback
+      - --passphrase-fd
+      - "0"
+      - "${artifact}"
+    stdin: "{{ .Env.GPG_PASSPHRASE }}"
+    env:
+      - GPG_PASSPHRASE
+      - GPG_FINGERPRINT
