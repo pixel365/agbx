@@ -65,7 +65,7 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
 			return newDockerClient()
-		}),
+		}, providers),
 		run.NewRunCommand(func() (run.DockerClient, error) {
 			return newDockerClient()
 		}, providers),

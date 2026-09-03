@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pixel365/agbx/internal/config"
@@ -49,4 +50,16 @@ func (registry *Registry) Lookup(name string) (Provider, error) {
 	}
 
 	return provider, nil
+}
+
+func (registry *Registry) All() []Provider {
+	providers := make([]Provider, 0, len(registry.providers))
+	for _, provider := range registry.providers {
+		providers = append(providers, provider)
+	}
+	sort.Slice(providers, func(first int, second int) bool {
+		return providers[first].Name() < providers[second].Name()
+	})
+
+	return providers
 }

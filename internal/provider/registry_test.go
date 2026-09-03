@@ -66,6 +66,16 @@ func TestRegistryReturnsNotFoundForUnknownProvider(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestRegistryListsProvidersByName(t *testing.T) {
+	registry := NewRegistry()
+	firstProvider := testProvider{name: "codex"}
+	secondProvider := testProvider{name: providerName}
+	require.NoError(t, registry.Register(firstProvider))
+	require.NoError(t, registry.Register(secondProvider))
+
+	assert.Equal(t, []Provider{secondProvider, firstProvider}, registry.All())
+}
+
 func TestBuildRecipePreparedImageReference(t *testing.T) {
 	image := config.Image{Name: "example/image", Tag: imageTag, Digest: "sha256:abc"}
 	recipe := BuildRecipe{Dockerfile: exampleDockerfile}
