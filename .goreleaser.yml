@@ -26,6 +26,8 @@ changelog:
   sort: asc
   filters:
     exclude:
+      - "^ci:"
+      - "^fix(ci):"
       - "^docs:"
       - "^test:"
       - "^Merge "
