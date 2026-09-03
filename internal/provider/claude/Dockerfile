@@ -40,6 +40,7 @@ RUN set -eu; \
     rm "${rtk_archive}" rtk-checksums.txt
 
 ENV DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 \
     RTK_TELEMETRY_DISABLED=1 \
     SHELL=/bin/bash \
     USE_BUILTIN_RIPGREP=0

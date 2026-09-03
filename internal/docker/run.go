@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	mobyclient "github.com/moby/moby/client"
 )
 
@@ -22,11 +23,18 @@ type RunRequest struct {
 	Input            io.Reader
 	Output           io.Writer
 	Image            string
+	Mounts           []Mount
 	StateDirectory   string
 	User             string
 	WorkingDirectory string
 	Command          []string
 	PullImage        bool
+}
+
+type Mount struct {
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
@@ -97,10 +105,7 @@ func (c *Client) createContainer(
 		},
 		HostConfig: &container.HostConfig{
 			AutoRemove: true,
-			Binds: []string{
-				request.WorkingDirectory + ":" + workspaceDirectory,
-				request.StateDirectory + ":" + homeDirectory,
-			},
+			Mounts:     containerMounts(request),
 		},
 	})
 	if err != nil {
@@ -108,6 +113,36 @@ func (c *Client) createContainer(
 	}
 
 	return createdContainer, nil
+}
+
+func containerMounts(request RunRequest) []mount.Mount {
+	mounts := make([]mount.Mount, 0, len(request.Mounts)+2)
+	mounts = append(
+		mounts,
+		bindMount(request.WorkingDirectory, workspaceDirectory, false),
+		bindMount(request.StateDirectory, homeDirectory, false),
+	)
+	for _, additionalMount := range request.Mounts {
+		mounts = append(
+			mounts,
+			bindMount(
+				additionalMount.Source,
+				additionalMount.Target,
+				additionalMount.ReadOnly,
+			),
+		)
+	}
+
+	return mounts
+}
+
+func bindMount(source string, target string, readOnly bool) mount.Mount {
+	return mount.Mount{
+		Type:     mount.TypeBind,
+		Source:   source,
+		Target:   target,
+		ReadOnly: readOnly,
+	}
 }
 
 func (c *Client) attachContainer(

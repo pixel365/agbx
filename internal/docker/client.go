@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
 )
 
@@ -22,11 +23,6 @@ const (
 
 type Client struct {
 	api *mobyclient.Client
-}
-
-type notFoundError interface {
-	error
-	NotFound()
 }
 
 func NewClient() (*Client, error) {
@@ -63,7 +59,7 @@ func (c *Client) HasImage(ctx context.Context, image string) (bool, error) {
 		return true, nil
 	}
 
-	if _, ok := errors.AsType[notFoundError](err); ok {
+	if errdefs.IsNotFound(err) {
 		return false, nil
 	}
 

@@ -143,7 +143,7 @@ func (testProviderInstance *testProvider) BuildRecipe(
 	}, nil
 }
 
-func (*testProvider) Command([]string) ([]string, error) {
+func (*testProvider) Command([]string, []config.Mount) ([]string, error) {
 	return nil, nil
 }
 

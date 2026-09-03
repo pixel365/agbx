@@ -16,7 +16,7 @@ var (
 
 type Provider interface {
 	BuildRecipe(config.Image) (BuildRecipe, error)
-	Command([]string) ([]string, error)
+	Command([]string, []config.Mount) ([]string, error)
 	Name() string
 }
 

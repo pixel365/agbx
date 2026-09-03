@@ -34,6 +34,11 @@ func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
 	}, nil
 }
 
-func (Provider) Command(args []string) ([]string, error) {
-	return append([]string{"agbx-claude"}, args...), nil
+func (Provider) Command(args []string, mounts []config.Mount) ([]string, error) {
+	command := []string{"agbx-claude"}
+	if len(mounts) > 0 {
+		command = append(command, "--add-dir", config.AdditionalMountDirectory)
+	}
+
+	return append(command, args...), nil
 }

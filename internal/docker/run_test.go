@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +23,37 @@ func TestForwardTerminalResizeSkipsNonTerminalInput(t *testing.T) {
 
 	require.NoError(t, err)
 	stop()
+}
+
+func TestContainerMounts(t *testing.T) {
+	request := RunRequest{
+		Mounts: []Mount{{
+			Source:   "/host/CLAUDE.md",
+			Target:   "/agbx/mounts/CLAUDE.md",
+			ReadOnly: true,
+		}},
+		StateDirectory:   "/host/state",
+		WorkingDirectory: "/host/workspace",
+	}
+
+	assert.Equal(t, []mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: "/host/workspace",
+			Target: workspaceDirectory,
+		},
+		{
+			Type:   mount.TypeBind,
+			Source: "/host/state",
+			Target: homeDirectory,
+		},
+		{
+			Type:     mount.TypeBind,
+			Source:   "/host/CLAUDE.md",
+			Target:   "/agbx/mounts/CLAUDE.md",
+			ReadOnly: true,
+		},
+	}, containerMounts(request))
 }
 
 func TestMakeRawInputRestoresTerminal(t *testing.T) {

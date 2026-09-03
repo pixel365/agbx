@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
+	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
 	"github.com/pixel365/agbx/internal/provider"
 )
@@ -64,7 +65,7 @@ func runProvider(
 		selectedProvider.Name(),
 		configuration.Image,
 	)
-	command, err := selectedProvider.Command(args[1:])
+	command, err := selectedProvider.Command(args[1:], configuration.Mounts)
 	if err != nil {
 		return fmt.Errorf("create command for provider %q: %w", args[0], err)
 	}
@@ -106,12 +107,26 @@ func runProvider(
 		Command:          command,
 		Image:            imageReference,
 		Input:            cmd.InOrStdin(),
+		Mounts:           dockerMounts(configuration.Mounts),
 		Output:           cmd.OutOrStdout(),
 		PullImage:        false,
 		StateDirectory:   stateDirectory,
 		User:             containerUser,
 		WorkingDirectory: workingDirectory,
 	})
+}
+
+func dockerMounts(mounts []config.Mount) []docker.Mount {
+	result := make([]docker.Mount, 0, len(mounts))
+	for _, mount := range mounts {
+		result = append(result, docker.Mount{
+			Source:   mount.Source,
+			Target:   mount.Target,
+			ReadOnly: mount.IsReadOnly(),
+		})
+	}
+
+	return result
 }
 
 func providerStateDirectory(providerName string) (string, error) {

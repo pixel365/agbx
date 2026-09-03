@@ -29,7 +29,7 @@ func (testProvider) BuildRecipe(config.Image) (BuildRecipe, error) {
 	return BuildRecipe{}, nil
 }
 
-func (testProvider) Command([]string) ([]string, error) {
+func (testProvider) Command([]string, []config.Mount) ([]string, error) {
 	return nil, nil
 }
 

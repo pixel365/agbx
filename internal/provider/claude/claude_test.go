@@ -9,6 +9,8 @@ import (
 	"github.com/pixel365/agbx/internal/config"
 )
 
+const helpArgument = "--help"
+
 func TestProviderBuildRecipe(t *testing.T) {
 	image := config.Image{
 		Name:   "example/image",
@@ -24,8 +26,22 @@ func TestProviderBuildRecipe(t *testing.T) {
 }
 
 func TestProviderCommand(t *testing.T) {
-	command, err := New().Command([]string{"--help"})
+	command, err := New().Command([]string{helpArgument}, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"agbx-claude", "--help"}, command)
+	assert.Equal(t, []string{"agbx-claude", helpArgument}, command)
+}
+
+func TestProviderCommandAddsAdditionalMountDirectory(t *testing.T) {
+	command, err := New().Command(
+		[]string{helpArgument},
+		[]config.Mount{{Source: "instructions", Target: config.AdditionalMountDirectory}},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		[]string{"agbx-claude", "--add-dir", config.AdditionalMountDirectory, helpArgument},
+		command,
+	)
 }
