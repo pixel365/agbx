@@ -29,9 +29,10 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
 	t.Setenv(dataHomeEnvironmentVariable, stateHome)
+	configFile := filepath.Join(directory, ".agbx.yaml")
 	require.NoError(
 		t,
-		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+		os.WriteFile(configFile, []byte(validConfig), 0o600),
 	)
 
 	dockerClient := &recordingDockerClient{hasImage: true}
@@ -56,11 +57,12 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 		dockerClient.request.Image,
 	)
 	assert.Equal(t, directory, dockerClient.request.WorkingDirectory)
-	assert.Equal(
-		t,
-		filepath.Join(stateHome, "agbx", "providers", providerName),
-		dockerClient.request.StateDirectory,
-	)
+	expectedWorkspaceDirectory, err := projectWorkspaceDirectory(configFile)
+	require.NoError(t, err)
+	assert.Equal(t, expectedWorkspaceDirectory, dockerClient.request.WorkspaceDirectory)
+	expectedStateDirectory, err := providerStateDirectory(providerName)
+	require.NoError(t, err)
+	assert.Equal(t, expectedStateDirectory, dockerClient.request.StateDirectory)
 	if runtime.GOOS == "windows" {
 		assert.Empty(t, dockerClient.request.User)
 	} else {
@@ -77,9 +79,10 @@ func TestRunCommandRejectsUnpreparedProvider(t *testing.T) {
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
 	t.Setenv(dataHomeEnvironmentVariable, stateHome)
+	configFile := filepath.Join(directory, ".agbx.yaml")
 	require.NoError(
 		t,
-		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+		os.WriteFile(configFile, []byte(validConfig), 0o600),
 	)
 
 	dockerClient := &recordingDockerClient{}
@@ -157,6 +160,20 @@ func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 	}
+}
+
+func TestProjectWorkspaceDirectoryIsScopedToConfigFile(t *testing.T) {
+	firstConfigFile := filepath.Join(t.TempDir(), ".agbx.yaml")
+	secondConfigFile := filepath.Join(t.TempDir(), ".agbx.yaml")
+	require.NoError(t, os.WriteFile(firstConfigFile, []byte(validConfig), 0o600))
+	require.NoError(t, os.WriteFile(secondConfigFile, []byte(validConfig), 0o600))
+
+	firstDirectory, err := projectWorkspaceDirectory(firstConfigFile)
+	require.NoError(t, err)
+	secondDirectory, err := projectWorkspaceDirectory(secondConfigFile)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, firstDirectory, secondDirectory)
 }
 
 func TestProviderStateDirectoryRejectsPath(t *testing.T) {

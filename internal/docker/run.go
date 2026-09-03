@@ -12,20 +12,21 @@ import (
 )
 
 const (
-	workspaceDirectory = "/workspace"
-	homeDirectory      = "/home/agbx"
+	defaultWorkspaceDirectory = "/workspace"
+	homeDirectory             = "/home/agbx"
 )
 
 type RunRequest struct {
-	Input            io.Reader
-	Output           io.Writer
-	Image            string
-	Mounts           []Mount
-	StateDirectory   string
-	User             string
-	WorkingDirectory string
-	Command          []string
-	PullImage        bool
+	Input              io.Reader
+	Output             io.Writer
+	Image              string
+	Mounts             []Mount
+	StateDirectory     string
+	User               string
+	WorkingDirectory   string
+	WorkspaceDirectory string
+	Command            []string
+	PullImage          bool
 }
 
 type Mount struct {
@@ -98,7 +99,7 @@ func (c *Client) createContainer(
 			OpenStdin:    true,
 			Tty:          true,
 			User:         request.User,
-			WorkingDir:   workspaceDirectory,
+			WorkingDir:   containerWorkspaceDirectory(request),
 		},
 		HostConfig: &container.HostConfig{
 			AutoRemove: true,
@@ -116,7 +117,7 @@ func containerMounts(request RunRequest) []mount.Mount {
 	mounts := make([]mount.Mount, 0, len(request.Mounts)+2)
 	mounts = append(
 		mounts,
-		bindMount(request.WorkingDirectory, workspaceDirectory, false),
+		bindMount(request.WorkingDirectory, containerWorkspaceDirectory(request), false),
 		bindMount(request.StateDirectory, homeDirectory, false),
 	)
 	for _, additionalMount := range request.Mounts {
@@ -131,6 +132,14 @@ func containerMounts(request RunRequest) []mount.Mount {
 	}
 
 	return mounts
+}
+
+func containerWorkspaceDirectory(request RunRequest) string {
+	if request.WorkspaceDirectory == "" {
+		return defaultWorkspaceDirectory
+	}
+
+	return request.WorkspaceDirectory
 }
 
 func bindMount(source string, target string, readOnly bool) mount.Mount {

@@ -59,8 +59,9 @@ locally and only needs to be run again when the base image or provider setup
 changes. Use `agbx prepare claude --force` to rebuild it explicitly.
 
 `run` starts the prepared provider image interactively. The current directory
-is mounted read-write at `/workspace`; provider authentication state is stored
-on the host under `${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
+is mounted read-write at a stable, configuration-specific path below
+`/workspace`; provider authentication state is shared between projects under
+`${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
 
 ## Configuration
 

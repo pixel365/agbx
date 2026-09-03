@@ -32,15 +32,16 @@ func TestContainerMounts(t *testing.T) {
 			Target:   "/agbx/CLAUDE.md",
 			ReadOnly: true,
 		}},
-		StateDirectory:   "/host/state",
-		WorkingDirectory: "/host/workspace",
+		StateDirectory:     "/host/state",
+		WorkingDirectory:   "/host/workspace",
+		WorkspaceDirectory: "/workspace/project",
 	}
 
 	assert.Equal(t, []mount.Mount{
 		{
 			Type:   mount.TypeBind,
 			Source: "/host/workspace",
-			Target: workspaceDirectory,
+			Target: "/workspace/project",
 		},
 		{
 			Type:   mount.TypeBind,

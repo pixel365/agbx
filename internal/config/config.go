@@ -299,17 +299,29 @@ func isEnvironmentVariableName(name string) bool {
 }
 
 func LoadDefault(directory string) (Config, error) {
+	configuration, _, err := LoadDefaultWithPath(directory)
+
+	return configuration, err
+}
+
+func LoadDefaultWithPath(directory string) (Config, string, error) {
 	for _, fileName := range []string{defaultYAMLFileName, defaultYMLFileName} {
-		configuration, err := Load(filepath.Join(directory, fileName))
+		filePath := filepath.Join(directory, fileName)
+		configuration, err := Load(filePath)
 		if err == nil {
-			return configuration, nil
+			absolutePath, err := filepath.Abs(filePath)
+			if err != nil {
+				return Config{}, "", fmt.Errorf("get absolute config path %q: %w", filePath, err)
+			}
+
+			return configuration, filepath.Clean(absolutePath), nil
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
-			return Config{}, err
+			return Config{}, "", err
 		}
 	}
 
-	return Config{}, fmt.Errorf("%w in %q", ErrNotFound, directory)
+	return Config{}, "", fmt.Errorf("%w in %q", ErrNotFound, directory)
 }
 
 func Create(directory string, configuration Config) error {

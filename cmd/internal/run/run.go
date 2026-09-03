@@ -2,9 +2,12 @@ package run
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -24,7 +27,10 @@ type DockerClient interface {
 
 type DockerClientFunc func() (DockerClient, error)
 
-const dataHomeEnvironmentVariable = "XDG_DATA_HOME"
+const (
+	dataHomeEnvironmentVariable = "XDG_DATA_HOME"
+	workspaceDirectory          = "/workspace"
+)
 
 func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registry) *cobra.Command {
 	return &cobra.Command{
@@ -52,10 +58,11 @@ func runProvider(
 		return err
 	}
 
-	configuration, err := commandconfig.Load(cmd)
+	loadedConfig, err := commandconfig.LoadWithPath(cmd)
 	if err != nil {
 		return err
 	}
+	configuration := loadedConfig.Configuration
 	mounts, err := configuration.MountsForProvider(selectedProvider.Name())
 	if err != nil {
 		return fmt.Errorf("get mounts for provider %q: %w", args[0], err)
@@ -97,6 +104,10 @@ func runProvider(
 	if err != nil {
 		return fmt.Errorf("get current directory: %w", err)
 	}
+	containerWorkspaceDirectory, err := projectWorkspaceDirectory(loadedConfig.FilePath)
+	if err != nil {
+		return err
+	}
 	stateDirectory, err := providerStateDirectory(selectedProvider.Name())
 	if err != nil {
 		return err
@@ -107,15 +118,16 @@ func runProvider(
 	}
 
 	return dockerClient.Run(cmd.Context(), docker.RunRequest{
-		Command:          command,
-		Image:            imageReference,
-		Input:            cmd.InOrStdin(),
-		Mounts:           dockerMounts(mounts),
-		Output:           cmd.OutOrStdout(),
-		PullImage:        false,
-		StateDirectory:   stateDirectory,
-		User:             containerUser,
-		WorkingDirectory: workingDirectory,
+		Command:            command,
+		Image:              imageReference,
+		Input:              cmd.InOrStdin(),
+		Mounts:             dockerMounts(mounts),
+		Output:             cmd.OutOrStdout(),
+		PullImage:          false,
+		StateDirectory:     stateDirectory,
+		User:               containerUser,
+		WorkingDirectory:   workingDirectory,
+		WorkspaceDirectory: containerWorkspaceDirectory,
 	})
 }
 
@@ -160,6 +172,26 @@ func providerStateDirectory(providerName string) (string, error) {
 	}
 
 	return directory, nil
+}
+
+func projectWorkspaceDirectory(configFile string) (string, error) {
+	projectIdentifier, err := projectID(configFile)
+	if err != nil {
+		return "", err
+	}
+
+	return path.Join(workspaceDirectory, projectIdentifier), nil
+}
+
+func projectID(configFile string) (string, error) {
+	resolvedPath, err := filepath.EvalSymlinks(configFile)
+	if err != nil {
+		return "", fmt.Errorf("resolve config path %q: %w", configFile, err)
+	}
+
+	digest := sha256.Sum256([]byte(filepath.Clean(resolvedPath)))
+
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func isProviderNamePathComponent(name string) bool {
