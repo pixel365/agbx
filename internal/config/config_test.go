@@ -15,6 +15,12 @@ const (
 	additionalMountSource    = "docs"
 	additionalMountTarget    = AdditionalMountDirectory + "/docs"
 	mountSourceEnvironment   = "AGBX_TEST_MOUNT_SOURCE"
+	providerMountSource      = "instructions"
+	providerMountTarget      = AdditionalMountDirectory + "/instructions"
+	otherProviderName        = "codex"
+	otherProviderMountSource = "codex-instructions"
+	otherProviderMountTarget = AdditionalMountDirectory + "/codex-instructions"
+	testProviderName         = "claude"
 	validConfigYAML          = "version: 1\nimage:\n  name: " + exampleImageName + "\n  tag: latest\n"
 	validConfigWithMountYAML = "version: 1\nimage:\n  name: " + exampleImageName +
 		"\n  tag: latest\nmounts:\n  - source: " + additionalMountSource +
@@ -53,6 +59,37 @@ func TestLoadReadsMounts(t *testing.T) {
 		Target: additionalMountTarget,
 	}}, configuration.Mounts)
 	assert.True(t, configuration.Mounts[0].IsReadOnly())
+}
+
+func TestLoadReadsProviderMounts(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	require.NoError(t, os.Mkdir(filepath.Join(directory, providerMountSource), 0o700))
+	contents := validConfigYAML + "providers:\n  " + testProviderName + ":\n    mounts:\n" +
+		"      - source: " + providerMountSource + "\n        target: " + providerMountTarget + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	require.NoError(t, err)
+	assert.Equal(t, []Mount{{
+		Source: filepath.Join(directory, providerMountSource),
+		Target: providerMountTarget,
+	}}, configuration.Providers[testProviderName].Mounts)
+}
+
+func TestLoadRejectsMissingProviderMountSource(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	contents := validConfigYAML + "providers:\n  " + testProviderName + ":\n    mounts:\n" +
+		"      - source: " + providerMountSource + "\n        target: " + providerMountTarget + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	assert.Equal(t, Config{}, configuration)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	assert.ErrorContains(t, err, "config provider \"claude\" mounts")
 }
 
 func TestLoadRejectsMissingMountSource(t *testing.T) {
@@ -202,7 +239,7 @@ func TestConfigValidateRejectsInvalidMount(t *testing.T) {
 			name:  "outside additional mounts",
 			mount: Mount{Source: additionalMountSource, Target: "/workspace/AGENTS.md"},
 			want: "config mount 1 target \"/workspace/AGENTS.md\" must be inside " +
-				"\"/agbx/mounts\"",
+				"\"" + AdditionalMountDirectory + "\"",
 		},
 	}
 
@@ -230,8 +267,58 @@ func TestConfigValidateRejectsOverlappingMountTarget(t *testing.T) {
 	assert.EqualError(
 		t,
 		err,
-		"config mount 2 target \"/agbx/mounts/docs\" overlaps config mount 1 target \"/agbx/mounts/docs\"",
+		"config mount 2 target \""+additionalMountTarget+"\" overlaps config mount 1 target \""+
+			additionalMountTarget+"\"",
 	)
+}
+
+func TestConfigValidateRejectsProviderMountTargetOverlap(t *testing.T) {
+	configuration := validConfig
+	configuration.Mounts = []Mount{{
+		Source: additionalMountSource,
+		Target: additionalMountTarget,
+	}}
+	configuration.Providers = map[string]ProviderConfig{
+		testProviderName: {Mounts: []Mount{{
+			Source: providerMountSource,
+			Target: additionalMountTarget + "/instructions",
+		}}},
+	}
+
+	err := configuration.Validate()
+
+	assert.EqualError(
+		t,
+		err,
+		"config provider \"claude\" mounts: config mount 2 target \""+additionalMountTarget+
+			"/instructions\" overlaps config mount 1 target \""+additionalMountTarget+"\"",
+	)
+}
+
+func TestConfigMountsForProviderCombinesSharedAndProviderMounts(t *testing.T) {
+	configuration := validConfig
+	configuration.Mounts = []Mount{{
+		Source: additionalMountSource,
+		Target: additionalMountTarget,
+	}}
+	configuration.Providers = map[string]ProviderConfig{
+		testProviderName: {Mounts: []Mount{{
+			Source: providerMountSource,
+			Target: providerMountTarget,
+		}}},
+		otherProviderName: {Mounts: []Mount{{
+			Source: otherProviderMountSource,
+			Target: otherProviderMountTarget,
+		}}},
+	}
+
+	mounts, err := configuration.MountsForProvider(testProviderName)
+
+	require.NoError(t, err)
+	assert.Equal(t, []Mount{
+		{Source: additionalMountSource, Target: additionalMountTarget},
+		{Source: providerMountSource, Target: providerMountTarget},
+	}, mounts)
 }
 
 func TestConfigValidateAllowsAdditionalMountTarget(t *testing.T) {

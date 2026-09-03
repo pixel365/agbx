@@ -57,6 +57,10 @@ func runProvider(
 	if err != nil {
 		return err
 	}
+	mounts, err := configuration.MountsForProvider(selectedProvider.Name())
+	if err != nil {
+		return fmt.Errorf("get mounts for provider %q: %w", args[0], err)
+	}
 	recipe, err := selectedProvider.BuildRecipe(configuration.Image)
 	if err != nil {
 		return fmt.Errorf("create build recipe for provider %q: %w", args[0], err)
@@ -65,7 +69,7 @@ func runProvider(
 		selectedProvider.Name(),
 		configuration.Image,
 	)
-	command, err := selectedProvider.Command(args[1:], configuration.Mounts)
+	command, err := selectedProvider.Command(args[1:], mounts)
 	if err != nil {
 		return fmt.Errorf("create command for provider %q: %w", args[0], err)
 	}
@@ -107,7 +111,7 @@ func runProvider(
 		Command:          command,
 		Image:            imageReference,
 		Input:            cmd.InOrStdin(),
-		Mounts:           dockerMounts(configuration.Mounts),
+		Mounts:           dockerMounts(mounts),
 		Output:           cmd.OutOrStdout(),
 		PullImage:        false,
 		StateDirectory:   stateDirectory,

@@ -15,10 +15,12 @@ import (
 )
 
 const (
-	providerName           = "claude"
-	instructionFile        = "CLAUDE.md"
-	instructionMountTarget = config.AdditionalMountDirectory + "/" + instructionFile
-	validConfig            = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
+	providerName            = "claude"
+	sharedInstructionFile   = "AGENTS.md"
+	sharedInstructionTarget = config.AdditionalMountDirectory + "/" + sharedInstructionFile
+	instructionFile         = "CLAUDE.md"
+	instructionMountTarget  = config.AdditionalMountDirectory + "/" + instructionFile
+	validConfig             = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
 )
 
 func TestRunCommandRunsConfiguredImage(t *testing.T) {
@@ -102,9 +104,13 @@ func TestRunCommandPassesConfiguredMounts(t *testing.T) {
 	changeWorkingDirectory(t, directory)
 	t.Setenv(dataHomeEnvironmentVariable, stateHome)
 	sourcePath := filepath.Join(directory, instructionFile)
+	sharedSourcePath := filepath.Join(directory, sharedInstructionFile)
 	require.NoError(t, os.WriteFile(sourcePath, nil, 0o600))
-	contents := validConfig + "mounts:\n  - source: " + instructionFile +
-		"\n    target: " + instructionMountTarget + "\n"
+	require.NoError(t, os.WriteFile(sharedSourcePath, nil, 0o600))
+	contents := validConfig + "mounts:\n  - source: " + sharedInstructionFile +
+		"\n    target: " + sharedInstructionTarget + "\nproviders:\n  " + providerName +
+		":\n    mounts:\n      - source: " + instructionFile +
+		"\n        target: " + instructionMountTarget + "\n"
 	require.NoError(
 		t,
 		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(contents), 0o600),
@@ -119,11 +125,18 @@ func TestRunCommandPassesConfiguredMounts(t *testing.T) {
 	cmd.SetArgs([]string{providerName})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	assert.Equal(t, []docker.Mount{{
-		Source:   sourcePath,
-		Target:   instructionMountTarget,
-		ReadOnly: true,
-	}}, dockerClient.request.Mounts)
+	assert.Equal(t, []docker.Mount{
+		{
+			Source:   sharedSourcePath,
+			Target:   sharedInstructionTarget,
+			ReadOnly: true,
+		},
+		{
+			Source:   sourcePath,
+			Target:   instructionMountTarget,
+			ReadOnly: true,
+		},
+	}, dockerClient.request.Mounts)
 }
 
 func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {

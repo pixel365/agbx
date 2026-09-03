@@ -29,7 +29,7 @@ func TestContainerMounts(t *testing.T) {
 	request := RunRequest{
 		Mounts: []Mount{{
 			Source:   "/host/CLAUDE.md",
-			Target:   "/agbx/mounts/CLAUDE.md",
+			Target:   "/agbx/CLAUDE.md",
 			ReadOnly: true,
 		}},
 		StateDirectory:   "/host/state",
@@ -50,7 +50,7 @@ func TestContainerMounts(t *testing.T) {
 		{
 			Type:     mount.TypeBind,
 			Source:   "/host/CLAUDE.md",
-			Target:   "/agbx/mounts/CLAUDE.md",
+			Target:   "/agbx/CLAUDE.md",
 			ReadOnly: true,
 		},
 	}, containerMounts(request))

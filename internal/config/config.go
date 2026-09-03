@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"go.yaml.in/yaml/v4"
@@ -17,15 +18,20 @@ const (
 	defaultYMLFileName  = ".agbx.yml"
 	currentVersion      = 1
 
-	AdditionalMountDirectory = "/agbx/mounts"
+	AdditionalMountDirectory = "/agbx"
 )
 
 var ErrNotFound = errors.New("config file not found")
 
 type Config struct {
-	Image   Image   `yaml:"image"`
-	Mounts  []Mount `yaml:"mounts,omitempty"`
-	Version int     `yaml:"version"`
+	Providers map[string]ProviderConfig `yaml:"providers,omitempty"`
+	Image     Image                     `yaml:"image"`
+	Mounts    []Mount                   `yaml:"mounts,omitempty"`
+	Version   int                       `yaml:"version"`
+}
+
+type ProviderConfig struct {
+	Mounts []Mount `yaml:"mounts,omitempty"`
 }
 
 type Image struct {
@@ -73,13 +79,37 @@ func (c Config) Validate() error {
 	if err := c.validateMounts(); err != nil {
 		return err
 	}
+	for _, name := range c.providerNames() {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("config provider name is required")
+		}
+		if _, err := c.MountsForProvider(name); err != nil {
+			return fmt.Errorf("config provider %q mounts: %w", name, err)
+		}
+	}
 
 	return nil
 }
 
+func (c Config) MountsForProvider(name string) ([]Mount, error) {
+	providerMounts := c.Providers[name].Mounts
+	mounts := make([]Mount, 0, len(c.Mounts)+len(providerMounts))
+	mounts = append(mounts, c.Mounts...)
+	mounts = append(mounts, providerMounts...)
+	if err := validateMounts(mounts); err != nil {
+		return nil, err
+	}
+
+	return mounts, nil
+}
+
 func (c Config) validateMounts() error {
-	targets := make(map[string]int, len(c.Mounts))
-	for index, mount := range c.Mounts {
+	return validateMounts(c.Mounts)
+}
+
+func validateMounts(mounts []Mount) error {
+	targets := make(map[string]int, len(mounts))
+	for index, mount := range mounts {
 		mountNumber := index + 1
 		if strings.TrimSpace(mount.Source) == "" {
 			return fmt.Errorf("config mount %d source is required", mountNumber)
@@ -118,6 +148,16 @@ func (c Config) validateMounts() error {
 	}
 
 	return nil
+}
+
+func (c Config) providerNames() []string {
+	names := make([]string, 0, len(c.Providers))
+	for name := range c.Providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names
 }
 
 func isAdditionalMountTarget(target string) bool {
@@ -170,8 +210,23 @@ func Load(filePath string) (Config, error) {
 }
 
 func (c *Config) resolveMountSources(directory string) error {
-	for index := range c.Mounts {
-		mount := &c.Mounts[index]
+	if err := resolveMountSources(c.Mounts, directory); err != nil {
+		return err
+	}
+	for _, name := range c.providerNames() {
+		providerConfiguration := c.Providers[name]
+		if err := resolveMountSources(providerConfiguration.Mounts, directory); err != nil {
+			return fmt.Errorf("config provider %q mounts: %w", name, err)
+		}
+		c.Providers[name] = providerConfiguration
+	}
+
+	return nil
+}
+
+func resolveMountSources(mounts []Mount, directory string) error {
+	for index := range mounts {
+		mount := &mounts[index]
 		source, err := expandEnvironmentVariables(mount.Source)
 		if err != nil {
 			return fmt.Errorf("config mount %d source %q: %w", index+1, mount.Source, err)
