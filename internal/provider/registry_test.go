@@ -11,9 +11,11 @@ import (
 
 const (
 	baseImageArgument  = "BASE_IMAGE"
-	baseImageReference = "example/image:1.0"
-	exampleDockerfile  = "FROM example/image:1.0@sha256:abc"
+	imageName          = "example/image"
 	imageTag           = "1.0"
+	imageDigest        = "sha256:abc"
+	baseImageReference = imageName + ":" + imageTag
+	exampleDockerfile  = "FROM " + baseImageReference + "@" + imageDigest
 	providerName       = "claude"
 )
 
@@ -77,19 +79,20 @@ func TestRegistryListsProvidersByName(t *testing.T) {
 }
 
 func TestBuildRecipePreparedImageReference(t *testing.T) {
-	image := config.Image{Name: "example/image", Tag: imageTag, Digest: "sha256:abc"}
+	image := config.Image{Name: imageName, Tag: imageTag, Digest: imageDigest}
 	recipe := BuildRecipe{Dockerfile: exampleDockerfile}
 
 	firstReference := recipe.PreparedImageReference(providerName, image)
 	secondReference := recipe.PreparedImageReference(providerName, image)
 
 	assert.Equal(t, firstReference, secondReference)
+	assert.Contains(t, firstReference, preparedImageRepository+"-"+providerName+":")
 	assert.NotEqual(t, firstReference, recipe.PreparedImageReference("codex", image))
 	assert.NotEqual(
 		t,
 		firstReference,
 		BuildRecipe{
-			Dockerfile: "FROM example/image:2.0",
+			Dockerfile: "FROM " + imageName + ":2.0",
 		}.PreparedImageReference(
 			providerName,
 			image,
@@ -100,7 +103,7 @@ func TestBuildRecipePreparedImageReference(t *testing.T) {
 		firstReference,
 		BuildRecipe{
 			Dockerfile: exampleDockerfile,
-			BuildArgs:  map[string]string{baseImageArgument: "example/image:2.0"},
+			BuildArgs:  map[string]string{baseImageArgument: imageName + ":2.0"},
 		}.PreparedImageReference(providerName, image),
 	)
 	assert.Equal(
@@ -119,5 +122,30 @@ func TestBuildRecipePreparedImageReference(t *testing.T) {
 				baseImageArgument: baseImageReference,
 			},
 		}.PreparedImageReference(providerName, image),
+	)
+}
+
+func TestNewBuildRecipeAddsRuntimeDockerfile(t *testing.T) {
+	image := config.Image{Name: imageName, Tag: imageTag, Digest: imageDigest}
+	providerDockerfile := "RUN install provider"
+
+	recipe := NewBuildRecipe(image, providerDockerfile)
+
+	assert.Equal(t, runtimeDockerfile+"\n"+providerDockerfile, recipe.Dockerfile)
+	assert.Equal(t, map[string]string{baseImageBuildArg: image.Reference()}, recipe.BuildArgs)
+}
+
+func TestNewBuildRecipeAddsProviderPackages(t *testing.T) {
+	image := config.Image{Name: imageName, Tag: imageTag, Digest: imageDigest}
+
+	recipe := NewBuildRecipe(image, exampleDockerfile, "bubblewrap", "python3")
+
+	assert.Equal(
+		t,
+		map[string]string{
+			baseImageBuildArg:        image.Reference(),
+			providerPackagesBuildArg: "bubblewrap python3",
+		},
+		recipe.BuildArgs,
 	)
 }

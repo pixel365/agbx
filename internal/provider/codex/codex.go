@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	name              = "codex"
-	baseImageBuildArg = "BASE_IMAGE"
-	loginCommand      = "login"
-	logoutCommand     = "logout"
+	name          = "codex"
+	loginCommand  = "login"
+	logoutCommand = "logout"
+	bubblewrap    = "bubblewrap"
 )
 
 //go:embed Dockerfile
@@ -28,12 +28,7 @@ func (Provider) Name() string {
 }
 
 func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
-	return provider.BuildRecipe{
-		Dockerfile: dockerfile,
-		BuildArgs: map[string]string{
-			baseImageBuildArg: image.Reference(),
-		},
-	}, nil
+	return provider.NewBuildRecipe(image, dockerfile, bubblewrap), nil
 }
 
 func (Provider) Command(args []string, mounts []config.Mount) ([]string, error) {

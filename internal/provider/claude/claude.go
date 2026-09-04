@@ -8,8 +8,7 @@ import (
 )
 
 const (
-	name              = "claude"
-	baseImageBuildArg = "BASE_IMAGE"
+	name = "claude"
 )
 
 //go:embed Dockerfile
@@ -26,12 +25,7 @@ func (Provider) Name() string {
 }
 
 func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
-	return provider.BuildRecipe{
-		Dockerfile: dockerfile,
-		BuildArgs: map[string]string{
-			baseImageBuildArg: image.Reference(),
-		},
-	}, nil
+	return provider.NewBuildRecipe(image, dockerfile), nil
 }
 
 func (Provider) Command(args []string, mounts []config.Mount) ([]string, error) {

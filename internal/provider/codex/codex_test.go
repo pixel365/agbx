@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/provider"
 )
 
 const (
@@ -24,8 +25,7 @@ func TestProviderBuildRecipe(t *testing.T) {
 	recipe, err := New().BuildRecipe(image)
 
 	require.NoError(t, err)
-	assert.Equal(t, dockerfile, recipe.Dockerfile)
-	assert.Equal(t, map[string]string{baseImageBuildArg: image.Reference()}, recipe.BuildArgs)
+	assert.Equal(t, provider.NewBuildRecipe(image, dockerfile, bubblewrap), recipe)
 }
 
 func TestProviderCommand(t *testing.T) {
