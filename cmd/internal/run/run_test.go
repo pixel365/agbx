@@ -173,7 +173,7 @@ func TestRunCommandConfiguresNetworkAudit(t *testing.T) {
 	assert.Equal(
 		t,
 		filepath.Join(directory, auditLogDirectory),
-		dockerClient.request.NetworkAudit.LogDirectory,
+		filepath.Dir(dockerClient.request.NetworkAudit.LogDirectory),
 	)
 }
 

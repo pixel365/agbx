@@ -173,7 +173,8 @@ network:
 ```
 
 `agbx` creates an isolated Docker network for the agent and starts an
-intercepting proxy as its only network peer. The proxy records both an
+intercepting proxy as its only network peer. Every run gets a separate
+timestamped subdirectory. The proxy records both an
 incremental `flows.mitm` file and `flows.har` when the run ends. Its diagnostic
 output is written to `proxy.log`. Its local CA is trusted only inside the agent
 container; the private key is stored under

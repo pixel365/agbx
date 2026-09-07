@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ const (
 	caDirectoryName              = "network"
 	caPEMFileName                = "mitmproxy-ca.pem"
 	certificateFileName          = "mitmproxy-ca-cert.pem"
+	runDirectoryTimeFormat       = "20060102T150405.000000000Z"
 )
 
 type Settings struct {
@@ -38,7 +40,6 @@ func Setup(configuration config.AuditConfig) (Settings, error) {
 			err,
 		)
 	}
-
 	proxyConfigPath, err := proxyConfigDirectory()
 	if err != nil {
 		return Settings{}, err
@@ -47,12 +48,36 @@ func Setup(configuration config.AuditConfig) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	logDirectory, err := createRunDirectory(configuration.LogDirectory)
+	if err != nil {
+		return Settings{}, fmt.Errorf(
+			"create network audit run directory in %q: %w",
+			configuration.LogDirectory, err,
+		)
+	}
 
 	return Settings{
 		CertificatePath: certificatePath,
-		LogDirectory:    configuration.LogDirectory,
+		LogDirectory:    logDirectory,
 		ProxyConfigPath: proxyConfigPath,
 	}, nil
+}
+
+func createRunDirectory(parentDirectory string) (string, error) {
+	identifier := make([]byte, 8)
+	if _, err := rand.Read(identifier); err != nil {
+		return "", fmt.Errorf("generate network audit run identifier: %w", err)
+	}
+	directory := filepath.Join(
+		parentDirectory,
+		time.Now().UTC().Format(runDirectoryTimeFormat)+"-"+hex.EncodeToString(identifier),
+	)
+	// #nosec G302,G703 -- The parent directory is explicitly selected in the audit configuration.
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		return "", err
+	}
+
+	return directory, nil
 }
 
 func proxyConfigDirectory() (string, error) {

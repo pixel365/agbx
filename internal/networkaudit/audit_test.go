@@ -21,7 +21,8 @@ func TestSetupCreatesCertificateAndLogDirectory(t *testing.T) {
 	settings, err := Setup(config.AuditConfig{LogDirectory: logDirectory})
 
 	require.NoError(t, err)
-	assert.Equal(t, logDirectory, settings.LogDirectory)
+	assert.NotEqual(t, logDirectory, settings.LogDirectory)
+	assert.Equal(t, logDirectory, filepath.Dir(settings.LogDirectory))
 	assert.Equal(t, filepath.Join(stateHome, "agbx", caDirectoryName), settings.ProxyConfigPath)
 	assert.Equal(
 		t,
@@ -35,7 +36,7 @@ func TestSetupCreatesCertificateAndLogDirectory(t *testing.T) {
 	parsedCertificate, err := x509.ParseCertificate(block.Bytes)
 	require.NoError(t, err)
 	assert.True(t, parsedCertificate.IsCA)
-	assert.DirExists(t, logDirectory)
+	assert.DirExists(t, settings.LogDirectory)
 }
 
 func TestSetupReusesCertificate(t *testing.T) {
@@ -52,6 +53,10 @@ func TestSetupReusesCertificate(t *testing.T) {
 	secondCertificate, err := os.ReadFile(second.CertificatePath)
 	require.NoError(t, err)
 
-	assert.Equal(t, first, second)
+	assert.NotEqual(t, first.LogDirectory, second.LogDirectory)
+	assert.Equal(t, logDirectory, filepath.Dir(first.LogDirectory))
+	assert.Equal(t, logDirectory, filepath.Dir(second.LogDirectory))
+	assert.Equal(t, first.CertificatePath, second.CertificatePath)
+	assert.Equal(t, first.ProxyConfigPath, second.ProxyConfigPath)
 	assert.Equal(t, firstCertificate, secondCertificate)
 }
