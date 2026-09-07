@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -40,6 +42,34 @@ func NewBuildRecipe(
 		Dockerfile: runtimeDockerfile + "\n" + providerDockerfile,
 		BuildArgs:  buildArgs,
 	}
+}
+
+func BuildRecipeFor(selectedProvider Provider, configuration config.Config) (BuildRecipe, error) {
+	recipe, err := selectedProvider.BuildRecipe(configuration.Image)
+	if err != nil {
+		return BuildRecipe{}, err
+	}
+
+	return recipe.AppendDockerfiles(configuration.DockerfilesForProvider(selectedProvider.Name()))
+}
+
+func (recipe BuildRecipe) AppendDockerfiles(dockerfiles []string) (BuildRecipe, error) {
+	var contents strings.Builder
+	contents.WriteString(recipe.Dockerfile)
+	for _, dockerfile := range dockerfiles {
+		// #nosec G304 -- Dockerfile paths were validated and resolved from the selected configuration file.
+		fragment, err := os.ReadFile(dockerfile)
+		if err != nil {
+			return BuildRecipe{}, fmt.Errorf("read Dockerfile fragment %q: %w", dockerfile, err)
+		}
+
+		contents.WriteByte('\n')
+		contents.Write(fragment)
+	}
+
+	recipe.Dockerfile = contents.String()
+
+	return recipe, nil
 }
 
 func (recipe BuildRecipe) PreparedImageReference(providerName string, image config.Image) string {

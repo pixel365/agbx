@@ -66,7 +66,7 @@ func NewCheckCommand(
 				return nil
 			}
 
-			return writeProviderStatuses(cmd, ctx, dockerClient, providers, configuration.Image)
+			return writeProviderStatuses(cmd, ctx, dockerClient, providers, configuration)
 		},
 	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show provider image status")
@@ -79,7 +79,7 @@ func writeProviderStatuses(
 	ctx context.Context,
 	dockerClient DockerClient,
 	providers *provider.Registry,
-	image config.Image,
+	configuration config.Config,
 ) error {
 	registeredProviders := providers.All()
 	if len(registeredProviders) == 0 {
@@ -90,7 +90,7 @@ func writeProviderStatuses(
 	}
 
 	for index, selectedProvider := range registeredProviders {
-		recipe, err := selectedProvider.BuildRecipe(image)
+		recipe, err := provider.BuildRecipeFor(selectedProvider, configuration)
 		if err != nil {
 			return fmt.Errorf(
 				"create build recipe for provider %q: %w",
@@ -98,7 +98,10 @@ func writeProviderStatuses(
 				err,
 			)
 		}
-		imageReference := recipe.PreparedImageReference(selectedProvider.Name(), image)
+		imageReference := recipe.PreparedImageReference(
+			selectedProvider.Name(),
+			configuration.Image,
+		)
 		hasImage, err := dockerClient.HasImage(ctx, imageReference)
 		if err != nil {
 			return fmt.Errorf("check prepared image %q: %w", imageReference, err)

@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	providerName = "claude"
-	validConfig  = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
+	providerName   = "claude"
+	dockerfileName = "agbx.Dockerfile"
+	validConfig    = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
 )
 
 func TestPrepareCommandRejectsUnsupportedProvider(t *testing.T) {
@@ -78,6 +79,32 @@ func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 	assert.True(t, dockerClient.closed)
 	assert.Equal(t, dockerClient.request.Tag, dockerClient.inspectedImage)
 	assert.Equal(t, "Prepared provider image: "+dockerClient.request.Tag+"\n", out.String())
+}
+
+func TestPrepareCommandAppendsConfiguredDockerfiles(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	dockerfilePath := filepath.Join(directory, dockerfileName)
+	require.NoError(t, os.WriteFile(dockerfilePath, []byte("RUN install tools\n"), 0o600))
+	contents := validConfig + "prepare:\n  dockerfiles:\n    - " + dockerfileName + "\n"
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(contents), 0o600),
+	)
+
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(&testProvider{}))
+	dockerClient := &recordingDockerClient{}
+	cmd := NewPrepareCommand(newDockerClient(dockerClient), providers)
+	cmd.SetArgs([]string{providerName})
+	cmd.SetOut(io.Discard)
+
+	require.NoError(t, cmd.Execute())
+	assert.Equal(
+		t,
+		"FROM example/image:1.0@sha256:abc\nRUN install tools\n",
+		dockerClient.request.Dockerfile,
+	)
 }
 
 func TestPrepareCommandSkipsExistingImage(t *testing.T) {

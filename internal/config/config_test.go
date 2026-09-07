@@ -14,9 +14,11 @@ const (
 	exampleImageName         = "example/image"
 	additionalMountSource    = "docs"
 	additionalMountTarget    = AdditionalMountDirectory + "/docs"
+	additionalDockerfile     = "agbx.Dockerfile"
 	mountSourceEnvironment   = "AGBX_TEST_MOUNT_SOURCE"
 	providerMountSource      = "instructions"
 	providerMountTarget      = AdditionalMountDirectory + "/instructions"
+	providerDockerfile       = "agbx-claude.Dockerfile"
 	otherProviderName        = "codex"
 	otherProviderMountSource = "codex-instructions"
 	otherProviderMountTarget = AdditionalMountDirectory + "/codex-instructions"
@@ -76,6 +78,41 @@ func TestLoadReadsProviderMounts(t *testing.T) {
 		Source: filepath.Join(directory, providerMountSource),
 		Target: providerMountTarget,
 	}}, configuration.Providers[testProviderName].Mounts)
+}
+
+func TestLoadReadsDockerfiles(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	additionalDockerfilePath := filepath.Join(directory, additionalDockerfile)
+	providerDockerfilePath := filepath.Join(directory, providerDockerfile)
+	require.NoError(t, os.WriteFile(additionalDockerfilePath, []byte("RUN install tools"), 0o600))
+	require.NoError(t, os.WriteFile(providerDockerfilePath, []byte("RUN install plugin"), 0o600))
+	contents := validConfigYAML + "prepare:\n  dockerfiles:\n    - " + additionalDockerfile + "\nproviders:\n  " +
+		testProviderName + ":\n    dockerfiles:\n      - " + providerDockerfile + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{additionalDockerfilePath}, configuration.Prepare.Dockerfiles)
+	assert.Equal(
+		t,
+		[]string{providerDockerfilePath},
+		configuration.Providers[testProviderName].Dockerfiles,
+	)
+}
+
+func TestLoadRejectsMissingDockerfile(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	contents := validConfigYAML + "prepare:\n  dockerfiles:\n    - " + additionalDockerfile + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	assert.Equal(t, Config{}, configuration)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	assert.ErrorContains(t, err, "config prepare Dockerfiles")
 }
 
 func TestLoadRejectsMissingProviderMountSource(t *testing.T) {
@@ -180,6 +217,19 @@ func TestLoadDefaultReturnsNotFound(t *testing.T) {
 
 	assert.Equal(t, Config{}, configuration)
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestLoadDefaultReturnsMissingDockerfileError(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	contents := validConfigYAML + "prepare:\n  dockerfiles:\n    - " + additionalDockerfile + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := LoadDefault(directory)
+
+	assert.Equal(t, Config{}, configuration)
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.ErrorContains(t, err, "config prepare Dockerfiles")
 }
 
 func TestConfigValidateRequiresVersion(t *testing.T) {
@@ -295,6 +345,15 @@ func TestConfigValidateRejectsProviderMountTargetOverlap(t *testing.T) {
 	)
 }
 
+func TestConfigValidateRejectsEmptyDockerfilePath(t *testing.T) {
+	configuration := validConfig
+	configuration.Prepare.Dockerfiles = []string{""}
+
+	err := configuration.Validate()
+
+	assert.EqualError(t, err, "config prepare Dockerfiles: dockerfile 1 path is required")
+}
+
 func TestConfigMountsForProviderCombinesSharedAndProviderMounts(t *testing.T) {
 	configuration := validConfig
 	configuration.Mounts = []Mount{{
@@ -319,6 +378,20 @@ func TestConfigMountsForProviderCombinesSharedAndProviderMounts(t *testing.T) {
 		{Source: additionalMountSource, Target: additionalMountTarget},
 		{Source: providerMountSource, Target: providerMountTarget},
 	}, mounts)
+}
+
+func TestConfigDockerfilesForProviderCombinesSharedAndProviderDockerfiles(t *testing.T) {
+	configuration := validConfig
+	configuration.Prepare.Dockerfiles = []string{"shared-first", "shared-second"}
+	configuration.Providers = map[string]ProviderConfig{
+		testProviderName: {Dockerfiles: []string{"provider-first", "provider-second"}},
+	}
+
+	assert.Equal(
+		t,
+		[]string{"shared-first", "shared-second", "provider-first", "provider-second"},
+		configuration.DockerfilesForProvider(testProviderName),
+	)
 }
 
 func TestConfigValidateAllowsAdditionalMountTarget(t *testing.T) {

@@ -43,7 +43,7 @@ func NewPrepareCommand(
 			if err != nil {
 				return err
 			}
-			recipe, err := selectedProvider.BuildRecipe(configuration.Image)
+			recipe, err := provider.BuildRecipeFor(selectedProvider, configuration)
 			if err != nil {
 				return fmt.Errorf("create build recipe for provider %q: %w", args[0], err)
 			}

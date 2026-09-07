@@ -24,6 +24,7 @@ const (
 var ErrNotFound = errors.New("config file not found")
 
 type Config struct {
+	Prepare   PrepareConfig             `yaml:"prepare,omitempty"`
 	Providers map[string]ProviderConfig `yaml:"providers,omitempty"`
 	Image     Image                     `yaml:"image"`
 	Mounts    []Mount                   `yaml:"mounts,omitempty"`
@@ -31,7 +32,12 @@ type Config struct {
 }
 
 type ProviderConfig struct {
-	Mounts []Mount `yaml:"mounts,omitempty"`
+	Dockerfiles []string `yaml:"dockerfiles,omitempty"`
+	Mounts      []Mount  `yaml:"mounts,omitempty"`
+}
+
+type PrepareConfig struct {
+	Dockerfiles []string `yaml:"dockerfiles,omitempty"`
 }
 
 type Image struct {
@@ -79,6 +85,9 @@ func (c Config) Validate() error {
 	if err := c.validateMounts(); err != nil {
 		return err
 	}
+	if err := validateDockerfilePaths(c.Prepare.Dockerfiles); err != nil {
+		return fmt.Errorf("config prepare Dockerfiles: %w", err)
+	}
 	for _, name := range c.providerNames() {
 		if strings.TrimSpace(name) == "" {
 			return errors.New("config provider name is required")
@@ -86,9 +95,20 @@ func (c Config) Validate() error {
 		if _, err := c.MountsForProvider(name); err != nil {
 			return fmt.Errorf("config provider %q mounts: %w", name, err)
 		}
+		if err := validateDockerfilePaths(c.Providers[name].Dockerfiles); err != nil {
+			return fmt.Errorf("config provider %q Dockerfiles: %w", name, err)
+		}
 	}
 
 	return nil
+}
+
+func (c Config) DockerfilesForProvider(name string) []string {
+	providerDockerfiles := c.Providers[name].Dockerfiles
+	dockerfiles := make([]string, 0, len(c.Prepare.Dockerfiles)+len(providerDockerfiles))
+	dockerfiles = append(dockerfiles, c.Prepare.Dockerfiles...)
+
+	return append(dockerfiles, providerDockerfiles...)
 }
 
 func (c Config) MountsForProvider(name string) ([]Mount, error) {
@@ -150,6 +170,16 @@ func validateMounts(mounts []Mount) error {
 	return nil
 }
 
+func validateDockerfilePaths(dockerfiles []string) error {
+	for index, dockerfile := range dockerfiles {
+		if strings.TrimSpace(dockerfile) == "" {
+			return fmt.Errorf("dockerfile %d path is required", index+1)
+		}
+	}
+
+	return nil
+}
+
 func (c Config) providerNames() []string {
 	names := make([]string, 0, len(c.Providers))
 	for name := range c.Providers {
@@ -205,6 +235,9 @@ func Load(filePath string) (Config, error) {
 	if err := configuration.resolveMountSources(configurationDirectory); err != nil {
 		return Config{}, fmt.Errorf("resolve config mounts in file %q: %w", filePath, err)
 	}
+	if err := configuration.resolveDockerfilePaths(configurationDirectory); err != nil {
+		return Config{}, fmt.Errorf("resolve config Dockerfiles in file %q: %w", filePath, err)
+	}
 
 	return configuration, nil
 }
@@ -217,6 +250,21 @@ func (c *Config) resolveMountSources(directory string) error {
 		providerConfiguration := c.Providers[name]
 		if err := resolveMountSources(providerConfiguration.Mounts, directory); err != nil {
 			return fmt.Errorf("config provider %q mounts: %w", name, err)
+		}
+		c.Providers[name] = providerConfiguration
+	}
+
+	return nil
+}
+
+func (c *Config) resolveDockerfilePaths(directory string) error {
+	if err := resolveDockerfilePaths(c.Prepare.Dockerfiles, directory); err != nil {
+		return fmt.Errorf("config prepare Dockerfiles: %w", err)
+	}
+	for _, name := range c.providerNames() {
+		providerConfiguration := c.Providers[name]
+		if err := resolveDockerfilePaths(providerConfiguration.Dockerfiles, directory); err != nil {
+			return fmt.Errorf("config provider %q Dockerfiles: %w", name, err)
 		}
 		c.Providers[name] = providerConfiguration
 	}
@@ -242,6 +290,33 @@ func resolveMountSources(mounts []Mount, directory string) error {
 		}
 
 		mount.Source = source
+	}
+
+	return nil
+}
+
+func resolveDockerfilePaths(dockerfiles []string, directory string) error {
+	for index := range dockerfiles {
+		dockerfile := &dockerfiles[index]
+		filePath, err := expandEnvironmentVariables(*dockerfile)
+		if err != nil {
+			return fmt.Errorf("dockerfile %d path %q: %w", index+1, *dockerfile, err)
+		}
+		if !filepath.IsAbs(filePath) {
+			filePath = filepath.Join(directory, filePath)
+		}
+		filePath = filepath.Clean(filePath)
+
+		// #nosec G703 -- Dockerfile paths are intentionally resolved from the selected config file.
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return fmt.Errorf("dockerfile %d path %q: %w", index+1, *dockerfile, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("dockerfile %d path %q must be a regular file", index+1, *dockerfile)
+		}
+
+		*dockerfile = filePath
 	}
 
 	return nil
@@ -307,18 +382,25 @@ func LoadDefault(directory string) (Config, error) {
 func LoadDefaultWithPath(directory string) (Config, string, error) {
 	for _, fileName := range []string{defaultYAMLFileName, defaultYMLFileName} {
 		filePath := filepath.Join(directory, fileName)
-		configuration, err := Load(filePath)
-		if err == nil {
-			absolutePath, err := filepath.Abs(filePath)
-			if err != nil {
-				return Config{}, "", fmt.Errorf("get absolute config path %q: %w", filePath, err)
+		// Check the configuration file itself before loading it. Load can return
+		// fs.ErrNotExist for a path referenced from an otherwise present config.
+		if _, err := os.Stat(filePath); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
 			}
 
-			return configuration, filepath.Clean(absolutePath), nil
+			return Config{}, "", fmt.Errorf("inspect config file %q: %w", filePath, err)
 		}
-		if !errors.Is(err, fs.ErrNotExist) {
+		configuration, err := Load(filePath)
+		if err != nil {
 			return Config{}, "", err
 		}
+		absolutePath, err := filepath.Abs(filePath)
+		if err != nil {
+			return Config{}, "", fmt.Errorf("get absolute config path %q: %w", filePath, err)
+		}
+
+		return configuration, filepath.Clean(absolutePath), nil
 	}
 
 	return Config{}, "", fmt.Errorf("%w in %q", ErrNotFound, directory)

@@ -87,6 +87,30 @@ image:
 Use a digest to pin a non-`latest` image reproducibly. The digest is optional;
 an image without it is referenced by name and tag.
 
+### Dockerfile fragments
+
+Extend a prepared image with Dockerfile fragments. Paths are resolved relative
+to the configuration file and may use `${NAME}` environment variables. Shared
+fragments run in listed order for every provider; provider fragments run after
+them only for that provider.
+
+```yaml
+prepare:
+  dockerfiles:
+    - ${HOME}/.config/agbx/dockerfiles/tools.Dockerfile
+    - ./docker/agbx.Dockerfile
+
+providers:
+  claude:
+    dockerfiles:
+      - ./docker/agbx-claude.Dockerfile
+```
+
+Each fragment is appended after the runtime and provider Dockerfiles. Use
+instructions such as `RUN`, `ENV`, `LABEL`, `USER`, and `WORKDIR`. Do not use
+`FROM`, `COPY`, or `ADD`: custom files are not included in the Docker build
+context. Changing a fragment creates a new prepared image.
+
 ### Additional mounts
 
 Additional host paths can be mounted beneath `/agbx` in the container. A mount

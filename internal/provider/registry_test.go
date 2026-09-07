@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -147,5 +149,24 @@ func TestNewBuildRecipeAddsProviderPackages(t *testing.T) {
 			providerPackagesBuildArg: "bubblewrap python3",
 		},
 		recipe.BuildArgs,
+	)
+}
+
+func TestBuildRecipeAppendsDockerfiles(t *testing.T) {
+	directory := t.TempDir()
+	firstDockerfile := filepath.Join(directory, "first.Dockerfile")
+	secondDockerfile := filepath.Join(directory, "second.Dockerfile")
+	require.NoError(t, os.WriteFile(firstDockerfile, []byte("RUN install tools\n"), 0o600))
+	require.NoError(t, os.WriteFile(secondDockerfile, []byte("ENV EXAMPLE=value\n"), 0o600))
+
+	recipe, err := BuildRecipe{Dockerfile: exampleDockerfile}.AppendDockerfiles(
+		[]string{firstDockerfile, secondDockerfile},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		exampleDockerfile+"\nRUN install tools\n\nENV EXAMPLE=value\n",
+		recipe.Dockerfile,
 	)
 }
