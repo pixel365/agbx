@@ -148,9 +148,10 @@ func networkAuditConfiguration(configuration config.Config) (*docker.NetworkAudi
 	}
 
 	return &docker.NetworkAudit{
-		CertificatePath: settings.CertificatePath,
-		LogDirectory:    settings.LogDirectory,
-		ProxyConfigPath: settings.ProxyConfigPath,
+		CertificatePath:     settings.CertificatePath,
+		LogDirectory:        settings.LogDirectory,
+		ProxyConfigPath:     settings.ProxyConfigPath,
+		RedactionScriptPath: settings.RedactionScriptPath,
 	}, nil
 }
 

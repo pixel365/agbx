@@ -18,6 +18,8 @@ const (
 	firstRunIdentifier  = "0000000000000001"
 	secondRunIdentifier = "0000000000000002"
 	thirdRunIdentifier  = "0000000000000003"
+	redactedHeader      = "Authorization"
+	redactedQueryParam  = "access_token"
 )
 
 func TestSetupCreatesCertificateAndLogDirectory(t *testing.T) {
@@ -66,6 +68,28 @@ func TestSetupReusesCertificate(t *testing.T) {
 	assert.Equal(t, first.CertificatePath, second.CertificatePath)
 	assert.Equal(t, first.ProxyConfigPath, second.ProxyConfigPath)
 	assert.Equal(t, firstCertificate, secondCertificate)
+}
+
+func TestSetupCreatesRedactionScript(t *testing.T) {
+	stateHome := t.TempDir()
+	logDirectory := t.TempDir()
+	t.Setenv(stateHomeEnvironmentVariable, stateHome)
+
+	settings, err := Setup(config.AuditConfig{
+		LogDirectory: logDirectory,
+		Redact: config.AuditRedaction{
+			Headers:         []string{redactedHeader},
+			QueryParameters: []string{redactedQueryParam},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, settings.LogDirectory, filepath.Dir(settings.RedactionScriptPath))
+	contents, err := os.ReadFile(settings.RedactionScriptPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(contents), "authorization")
+	assert.Contains(t, string(contents), redactedQueryParam)
+	assert.Contains(t, string(contents), redactedHeaderValue)
 }
 
 func TestCleanupRunDirectoriesKeepsNewestRuns(t *testing.T) {

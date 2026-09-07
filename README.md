@@ -173,6 +173,13 @@ network:
     retention:
       max_runs: 20
       max_age: 168h
+    redact:
+      headers:
+        - Authorization
+        - X-API-Key
+      query_parameters:
+        - access_token
+        - api_key
 ```
 
 `agbx` creates an isolated Docker network for the agent and starts an
@@ -189,6 +196,14 @@ is mounted only into the proxy container.
 omitted; `max_runs: 0` also disables the count limit. Cleanup happens when a
 new audit starts and only considers timestamped run directories created by
 `agbx`.
+
+`redact.headers` replaces matching request-header values with `[REDACTED]`;
+matching is case-insensitive. `redact.query_parameters` replaces matching
+request query-parameter values; matching is exact. Both apply after the
+request has been sent, before the flow is persisted in `flows.mitm` and
+`flows.har`, so they do not change the request sent to the remote service.
+Normal proxy flow output is disabled, so `proxy.log` is limited to proxy
+diagnostics.
 
 The first audited run pulls the pinned `mitmproxy` image. The prepared provider
 image must include the current agbx runtime, so run `agbx prepare <provider>`

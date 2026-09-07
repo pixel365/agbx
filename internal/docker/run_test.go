@@ -99,6 +99,31 @@ func TestContainerEnvironmentUsesAuditProxy(t *testing.T) {
 	assert.Empty(t, containerUser(request))
 }
 
+func TestAuditProxyUsesRedactionScript(t *testing.T) {
+	audit := &NetworkAudit{
+		LogDirectory:        "/host/logs",
+		ProxyConfigPath:     "/host/proxy-config",
+		RedactionScriptPath: "/host/redact.py",
+	}
+
+	command := auditProxyCommand(audit)
+	mounts := auditProxyMounts(audit)
+
+	assert.Equal(
+		t,
+		[]string{auditProxyScriptOption, auditProxyRedactionScript},
+		command[len(command)-2:],
+	)
+	assert.Equal(t, mount.Mount{
+		Type:     mount.TypeBind,
+		Source:   audit.RedactionScriptPath,
+		Target:   auditProxyRedactionScript,
+		ReadOnly: true,
+	}, mounts[len(mounts)-1])
+	assert.Contains(t, command, auditProxySetOption)
+	assert.Contains(t, command, "flow_detail=0")
+}
+
 func TestMakeRawInputRestoresTerminal(t *testing.T) {
 	input, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
 	if err != nil {

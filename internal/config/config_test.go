@@ -20,6 +20,8 @@ const (
 	providerMountTarget      = AdditionalMountDirectory + "/instructions"
 	providerDockerfile       = "agbx-claude.Dockerfile"
 	auditLogDirectory        = "network-audit"
+	auditRedactedHeader      = "Authorization"
+	auditRedactedQueryParam  = "access_token"
 	otherProviderName        = "codex"
 	otherProviderMountSource = "codex-instructions"
 	otherProviderMountTarget = AdditionalMountDirectory + "/codex-instructions"
@@ -107,7 +109,8 @@ func TestLoadReadsNetworkAudit(t *testing.T) {
 	directory := t.TempDir()
 	filePath := filepath.Join(directory, defaultYAMLFileName)
 	contents := validConfigYAML + "network:\n  audit:\n    log_directory: " + auditLogDirectory +
-		"\n    retention:\n      max_runs: 20\n      max_age: 168h\n"
+		"\n    retention:\n      max_runs: 20\n      max_age: 168h\n    redact:\n      headers:\n        - " +
+		auditRedactedHeader + "\n      query_parameters:\n        - " + auditRedactedQueryParam + "\n"
 	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
 
 	configuration, err := Load(filePath)
@@ -123,6 +126,12 @@ func TestLoadReadsNetworkAudit(t *testing.T) {
 		t,
 		AuditRetention{MaxRuns: 20, MaxAge: "168h"},
 		configuration.Network.Audit.Retention,
+	)
+	assert.Equal(t, []string{auditRedactedHeader}, configuration.Network.Audit.Redact.Headers)
+	assert.Equal(
+		t,
+		[]string{auditRedactedQueryParam},
+		configuration.Network.Audit.Redact.QueryParameters,
 	)
 }
 
@@ -326,6 +335,55 @@ func TestConfigValidateRejectsInvalidNetworkAuditRetention(t *testing.T) {
 			configuration.Network.Audit = &AuditConfig{
 				LogDirectory: auditLogDirectory,
 				Retention:    testCase.retention,
+			}
+
+			err := configuration.Validate()
+
+			assert.EqualError(t, err, testCase.want)
+		})
+	}
+}
+
+func TestConfigValidateRejectsInvalidNetworkAuditRedaction(t *testing.T) {
+	testCases := []struct {
+		name      string
+		want      string
+		redaction AuditRedaction
+	}{
+		{
+			name:      "missing header",
+			redaction: AuditRedaction{Headers: []string{""}},
+			want:      "config network audit: redact: headers: header 1 is required",
+		},
+		{
+			name: "duplicate header",
+			redaction: AuditRedaction{Headers: []string{
+				auditRedactedHeader,
+				"authorization",
+			}},
+			want: "config network audit: redact: headers: header \"authorization\" is duplicated",
+		},
+		{
+			name:      "missing query parameter",
+			redaction: AuditRedaction{QueryParameters: []string{""}},
+			want:      "config network audit: redact: query parameters: query parameter 1 is required",
+		},
+		{
+			name: "duplicate query parameter",
+			redaction: AuditRedaction{QueryParameters: []string{
+				auditRedactedQueryParam,
+				auditRedactedQueryParam,
+			}},
+			want: "config network audit: redact: query parameters: query parameter \"access_token\" is duplicated",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			configuration := validConfig
+			configuration.Network.Audit = &AuditConfig{
+				LogDirectory: auditLogDirectory,
+				Redact:       testCase.redaction,
 			}
 
 			err := configuration.Validate()

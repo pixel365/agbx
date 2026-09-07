@@ -26,12 +26,14 @@ const (
 	auditProxyAlias           = "agbx-network-audit"
 	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
 	auditProxyLogDirectory    = "/logs"
+	auditProxyRedactionScript = "/agbx/redact.py"
 
 	//nolint:nolintlint
 	auditProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
 
 	auditRuntimeEntrypoint = "/usr/local/bin/agbx-run"
 	auditProxyReadyTimeout = 10 * time.Second
+	auditProxyScriptOption = "-s"
 	auditProxySetOption    = "--set"
 )
 
@@ -56,10 +58,11 @@ type Mount struct {
 }
 
 type NetworkAudit struct {
-	CertificatePath string
-	LogDirectory    string
-	NetworkName     string
-	ProxyConfigPath string
+	CertificatePath     string
+	LogDirectory        string
+	NetworkName         string
+	ProxyConfigPath     string
+	RedactionScriptPath string
 }
 
 func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
@@ -69,6 +72,8 @@ func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 		}
 	}
 	if request.NetworkAudit != nil {
+		defer removeAuditRedactionScript(request.NetworkAudit.RedactionScriptPath)
+
 		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
 		if err != nil {
 			return err
@@ -140,15 +145,7 @@ func (c *Client) startNetworkAudit(
 
 	proxy, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
 		Config: &container.Config{
-			Cmd: []string{
-				"mitmdump",
-				auditProxySetOption, "confdir=" + auditProxyConfigDirectory,
-				auditProxySetOption, "hardump=" + auditProxyLogDirectory + "/flows.har",
-				auditProxySetOption, "flow_detail=1",
-				auditProxySetOption, "onboarding=false",
-				auditProxySetOption, "save_stream_file=" + auditProxyLogDirectory + "/flows.mitm",
-				auditProxySetOption, "store_streamed_bodies=true",
-			},
+			Cmd:   auditProxyCommand(audit),
 			Image: auditProxyImage,
 			Healthcheck: &container.HealthConfig{
 				Interval:      time.Second,
@@ -164,10 +161,7 @@ func (c *Client) startNetworkAudit(
 				Timeout: time.Second,
 			},
 		},
-		HostConfig: &container.HostConfig{Mounts: []mount.Mount{
-			bindMount(audit.LogDirectory, auditProxyLogDirectory, false),
-			bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false),
-		}},
+		HostConfig: &container.HostConfig{Mounts: auditProxyMounts(audit)},
 	})
 	if err != nil {
 		c.removeNetworkAudit(audit, "")
@@ -202,6 +196,38 @@ func (c *Client) startNetworkAudit(
 	return func() {
 		c.removeNetworkAudit(audit, proxy.ID)
 	}, nil
+}
+
+func auditProxyCommand(audit *NetworkAudit) []string {
+	command := []string{
+		"mitmdump",
+		auditProxySetOption, "confdir=" + auditProxyConfigDirectory,
+		auditProxySetOption, "hardump=" + auditProxyLogDirectory + "/flows.har",
+		auditProxySetOption, "flow_detail=0",
+		auditProxySetOption, "onboarding=false",
+		auditProxySetOption, "save_stream_file=" + auditProxyLogDirectory + "/flows.mitm",
+		auditProxySetOption, "store_streamed_bodies=true",
+	}
+	if audit.RedactionScriptPath != "" {
+		command = append(command, auditProxyScriptOption, auditProxyRedactionScript)
+	}
+
+	return command
+}
+
+func auditProxyMounts(audit *NetworkAudit) []mount.Mount {
+	mounts := []mount.Mount{
+		bindMount(audit.LogDirectory, auditProxyLogDirectory, false),
+		bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false),
+	}
+	if audit.RedactionScriptPath != "" {
+		mounts = append(
+			mounts,
+			bindMount(audit.RedactionScriptPath, auditProxyRedactionScript, true),
+		)
+	}
+
+	return mounts
 }
 
 func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) error {
@@ -270,6 +296,15 @@ func (c *Client) removeNetworkAudit(audit *NetworkAudit, proxyID string) {
 		_, _ = c.api.ContainerRemove(ctx, proxyID, mobyclient.ContainerRemoveOptions{Force: true})
 	}
 	_, _ = c.api.NetworkRemove(ctx, audit.NetworkName, mobyclient.NetworkRemoveOptions{})
+}
+
+func removeAuditRedactionScript(path string) {
+	if path == "" {
+		return
+	}
+
+	// #nosec G703 -- The script is created in the network audit run directory.
+	_ = os.Remove(path)
 }
 
 func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxyID string) {

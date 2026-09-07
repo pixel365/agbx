@@ -48,12 +48,18 @@ type NetworkConfig struct {
 
 type AuditConfig struct {
 	LogDirectory string         `yaml:"log_directory"`
+	Redact       AuditRedaction `yaml:"redact,omitempty"`
 	Retention    AuditRetention `yaml:"retention,omitempty"`
 }
 
 type AuditRetention struct {
 	MaxAge  string `yaml:"max_age,omitempty"`
 	MaxRuns int    `yaml:"max_runs,omitempty"`
+}
+
+type AuditRedaction struct {
+	Headers         []string `yaml:"headers,omitempty"`
+	QueryParameters []string `yaml:"query_parameters,omitempty"`
 }
 
 type Image struct {
@@ -139,6 +145,40 @@ func (c AuditConfig) Validate() error {
 		if maxAge < 0 {
 			return errors.New("max age must not be negative")
 		}
+	}
+	if err := c.Redact.Validate(); err != nil {
+		return fmt.Errorf("redact: %w", err)
+	}
+
+	return nil
+}
+
+func (c AuditRedaction) Validate() error {
+	if err := validateRedactedNames("header", c.Headers, true); err != nil {
+		return fmt.Errorf("headers: %w", err)
+	}
+	if err := validateRedactedNames("query parameter", c.QueryParameters, false); err != nil {
+		return fmt.Errorf("query parameters: %w", err)
+	}
+
+	return nil
+}
+
+func validateRedactedNames(kind string, names []string, caseInsensitive bool) error {
+	knownNames := make(map[string]struct{}, len(names))
+	for index, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return fmt.Errorf("%s %d is required", kind, index+1)
+		}
+		key := name
+		if caseInsensitive {
+			key = strings.ToLower(name)
+		}
+		if _, found := knownNames[key]; found {
+			return fmt.Errorf("%s %q is duplicated", kind, name)
+		}
+		knownNames[key] = struct{}{}
 	}
 
 	return nil

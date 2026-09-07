@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -25,13 +26,47 @@ const (
 	caDirectoryName              = "network"
 	caPEMFileName                = "mitmproxy-ca.pem"
 	certificateFileName          = "mitmproxy-ca-cert.pem"
+	redactionScriptFileName      = "redact.py"
 	runDirectoryTimeFormat       = "20060102T150405.000000000Z"
+	redactedHeaderValue          = "[REDACTED]"
+	redactionScriptTemplate      = `from mitmproxy import http
+
+REDACTED_HEADERS = frozenset(%s)
+REDACTED_QUERY_PARAMETERS = frozenset(%s)
+REDACTED_VALUE = %q
+
+
+def redact_headers(headers) -> None:
+    for name in list(headers.keys()):
+        if name.lower() in REDACTED_HEADERS:
+            headers[name] = REDACTED_VALUE
+
+
+def redact_query_parameters(query) -> None:
+    for name in list(query.keys()):
+        if name in REDACTED_QUERY_PARAMETERS:
+            query[name] = REDACTED_VALUE
+
+
+def redact_request(request) -> None:
+    redact_headers(request.headers)
+    redact_query_parameters(request.query)
+
+
+def response(flow: http.HTTPFlow) -> None:
+    redact_request(flow.request)
+
+
+def error(flow: http.HTTPFlow) -> None:
+    redact_request(flow.request)
+`
 )
 
 type Settings struct {
-	CertificatePath string
-	LogDirectory    string
-	ProxyConfigPath string
+	CertificatePath     string
+	LogDirectory        string
+	ProxyConfigPath     string
+	RedactionScriptPath string
 }
 
 func Setup(configuration config.AuditConfig) (Settings, error) {
@@ -62,12 +97,71 @@ func Setup(configuration config.AuditConfig) (Settings, error) {
 			return Settings{}, err
 		}
 	}
+	redactionScriptPath, err := createRedactionScript(
+		logDirectory,
+		configuration.Redact.Headers,
+		configuration.Redact.QueryParameters,
+	)
+	if err != nil {
+		return Settings{}, err
+	}
 
 	return Settings{
-		CertificatePath: certificatePath,
-		LogDirectory:    logDirectory,
-		ProxyConfigPath: proxyConfigPath,
+		CertificatePath:     certificatePath,
+		LogDirectory:        logDirectory,
+		ProxyConfigPath:     proxyConfigPath,
+		RedactionScriptPath: redactionScriptPath,
 	}, nil
+}
+
+func createRedactionScript(
+	directory string,
+	headerNames []string,
+	queryParameterNames []string,
+) (string, error) {
+	if len(headerNames) == 0 && len(queryParameterNames) == 0 {
+		return "", nil
+	}
+	encodedHeaderNames, err := json.Marshal(normalizedHeaderNames(headerNames))
+	if err != nil {
+		return "", fmt.Errorf("encode network audit redacted header names: %w", err)
+	}
+	encodedQueryParameterNames, err := json.Marshal(
+		normalizedQueryParameterNames(queryParameterNames),
+	)
+	if err != nil {
+		return "", fmt.Errorf("encode network audit redacted query parameter names: %w", err)
+	}
+	script := fmt.Sprintf(
+		redactionScriptTemplate,
+		encodedHeaderNames,
+		encodedQueryParameterNames,
+		redactedHeaderValue,
+	)
+	path := filepath.Join(directory, redactionScriptFileName)
+	if err := writeFile(path, []byte(script)); err != nil {
+		return "", fmt.Errorf("write network audit redaction script: %w", err)
+	}
+
+	return path, nil
+}
+
+func normalizedHeaderNames(headerNames []string) []string {
+	normalized := make([]string, 0, len(headerNames))
+	for _, name := range headerNames {
+		normalized = append(normalized, strings.ToLower(strings.TrimSpace(name)))
+	}
+
+	return normalized
+}
+
+func normalizedQueryParameterNames(parameterNames []string) []string {
+	normalized := make([]string, 0, len(parameterNames))
+	for _, name := range parameterNames {
+		normalized = append(normalized, strings.TrimSpace(name))
+	}
+
+	return normalized
 }
 
 func hasRetention(retention config.AuditRetention) bool {
