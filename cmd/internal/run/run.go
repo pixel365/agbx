@@ -16,6 +16,7 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
+	"github.com/pixel365/agbx/internal/networkaudit"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -116,12 +117,17 @@ func runProvider(
 	if err != nil {
 		return err
 	}
+	networkAudit, err := networkAuditConfiguration(configuration)
+	if err != nil {
+		return err
+	}
 
 	return dockerClient.Run(cmd.Context(), docker.RunRequest{
 		Command:            command,
 		Image:              imageReference,
 		Input:              cmd.InOrStdin(),
 		Mounts:             dockerMounts(mounts),
+		NetworkAudit:       networkAudit,
 		Output:             cmd.OutOrStdout(),
 		PullImage:          false,
 		StateDirectory:     stateDirectory,
@@ -129,6 +135,23 @@ func runProvider(
 		WorkingDirectory:   workingDirectory,
 		WorkspaceDirectory: containerWorkspaceDirectory,
 	})
+}
+
+func networkAuditConfiguration(configuration config.Config) (*docker.NetworkAudit, error) {
+	if configuration.Network.Audit == nil {
+		return nil, nil
+	}
+
+	settings, err := networkaudit.Setup(*configuration.Network.Audit)
+	if err != nil {
+		return nil, fmt.Errorf("set up network audit: %w", err)
+	}
+
+	return &docker.NetworkAudit{
+		CertificatePath: settings.CertificatePath,
+		LogDirectory:    settings.LogDirectory,
+		ProxyConfigPath: settings.ProxyConfigPath,
+	}, nil
 }
 
 func dockerMounts(mounts []config.Mount) []docker.Mount {

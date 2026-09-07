@@ -23,7 +23,8 @@ ARG TOOL_PACKAGES="bash \
     python3 \
     ripgrep \
     tar \
-    unzip"
+    unzip \
+    util-linux"
 
 RUN if command -v apk > /dev/null; then \
         apk add --no-cache ${TOOL_PACKAGES} ${PROVIDER_PACKAGES}; \
@@ -56,3 +57,23 @@ RUN set -eu; \
 
 ENV RTK_TELEMETRY_DISABLED=1 \
     SHELL=/bin/bash
+
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'set -eu' \
+        'run_as="$1"' \
+        'shift' \
+        'if [ -n "${AGBX_PROXY_CA_CERTIFICATE:-}" ]; then' \
+        '    install -m 0644 "$AGBX_PROXY_CA_CERTIFICATE" /usr/local/share/ca-certificates/agbx-network-audit.crt' \
+        '    update-ca-certificates' \
+        'fi' \
+        'if [ -n "$run_as" ]; then' \
+        '    case "$run_as" in' \
+        '        *:*) user_id="${run_as%%:*}"; group_id="${run_as#*:}" ;;' \
+        '        *) echo "invalid container user: $run_as" >&2; exit 1 ;;' \
+        '    esac' \
+        '    exec setpriv --reuid "$user_id" --regid "$group_id" --clear-groups -- "$@"' \
+        'fi' \
+        'exec "$@"' \
+        > /usr/local/bin/agbx-run && \
+    chmod 0755 /usr/local/bin/agbx-run

@@ -19,6 +19,7 @@ const (
 	providerMountSource      = "instructions"
 	providerMountTarget      = AdditionalMountDirectory + "/instructions"
 	providerDockerfile       = "agbx-claude.Dockerfile"
+	auditLogDirectory        = "network-audit"
 	otherProviderName        = "codex"
 	otherProviderMountSource = "codex-instructions"
 	otherProviderMountTarget = AdditionalMountDirectory + "/codex-instructions"
@@ -99,6 +100,23 @@ func TestLoadReadsDockerfiles(t *testing.T) {
 		t,
 		[]string{providerDockerfilePath},
 		configuration.Providers[testProviderName].Dockerfiles,
+	)
+}
+
+func TestLoadReadsNetworkAudit(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	contents := validConfigYAML + "network:\n  audit:\n    log_directory: " + auditLogDirectory + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	require.NoError(t, err)
+	require.NotNil(t, configuration.Network.Audit)
+	assert.Equal(
+		t,
+		filepath.Join(directory, auditLogDirectory),
+		configuration.Network.Audit.LogDirectory,
 	)
 }
 
@@ -228,7 +246,7 @@ func TestLoadDefaultReturnsMissingDockerfileError(t *testing.T) {
 	configuration, err := LoadDefault(directory)
 
 	assert.Equal(t, Config{}, configuration)
-	assert.ErrorIs(t, err, fs.ErrNotExist)
+	require.ErrorIs(t, err, fs.ErrNotExist)
 	assert.ErrorContains(t, err, "config prepare Dockerfiles")
 }
 
@@ -262,6 +280,15 @@ func TestConfigValidateRequiresImageTag(t *testing.T) {
 	err := configuration.Validate()
 
 	assert.EqualError(t, err, "config image tag is required")
+}
+
+func TestConfigValidateRequiresNetworkAuditLogDirectory(t *testing.T) {
+	configuration := validConfig
+	configuration.Network.Audit = &AuditConfig{}
+
+	err := configuration.Validate()
+
+	assert.EqualError(t, err, "config network audit log directory is required")
 }
 
 func TestConfigValidateRejectsInvalidMount(t *testing.T) {

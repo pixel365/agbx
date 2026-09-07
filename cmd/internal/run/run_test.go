@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	auditLogDirectory       = "network-audit"
 	providerName            = "claude"
 	sharedInstructionFile   = "AGENTS.md"
 	sharedInstructionTarget = config.AdditionalMountDirectory + "/" + sharedInstructionFile
@@ -145,6 +146,35 @@ func TestRunCommandPassesConfiguredMounts(t *testing.T) {
 			ReadOnly: true,
 		},
 	}, dockerClient.request.Mounts)
+}
+
+func TestRunCommandConfiguresNetworkAudit(t *testing.T) {
+	directory := t.TempDir()
+	stateHome := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	t.Setenv(dataHomeEnvironmentVariable, stateHome)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	contents := validConfig + "network:\n  audit:\n    log_directory: " + auditLogDirectory + "\n"
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(contents), 0o600),
+	)
+
+	dockerClient := &recordingDockerClient{hasImage: true}
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(testProvider{}))
+	cmd := NewRunCommand(func() (DockerClient, error) {
+		return dockerClient, nil
+	}, providers)
+	cmd.SetArgs([]string{providerName})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.NotNil(t, dockerClient.request.NetworkAudit)
+	assert.Equal(
+		t,
+		filepath.Join(directory, auditLogDirectory),
+		dockerClient.request.NetworkAudit.LogDirectory,
+	)
 }
 
 func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {

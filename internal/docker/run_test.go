@@ -57,6 +57,48 @@ func TestContainerMounts(t *testing.T) {
 	}, containerMounts(request))
 }
 
+func TestContainerMountsIncludesAuditCertificate(t *testing.T) {
+	request := RunRequest{
+		NetworkAudit: &NetworkAudit{CertificatePath: "/host/network-audit-ca.crt"},
+	}
+
+	assert.Equal(t, []mount.Mount{
+		{
+			Type:     mount.TypeBind,
+			Source:   "/host/network-audit-ca.crt",
+			Target:   auditCertificateTarget,
+			ReadOnly: true,
+		},
+	}, containerMounts(request)[2:])
+}
+
+func TestContainerCommandUsesAuditEntrypoint(t *testing.T) {
+	request := RunRequest{
+		Command:      []string{"provider", "--help"},
+		NetworkAudit: &NetworkAudit{},
+		User:         "1000:1000",
+	}
+
+	assert.Equal(
+		t,
+		[]string{auditRuntimeEntrypoint, "1000:1000", "provider", "--help"},
+		containerCommand(request),
+	)
+}
+
+func TestContainerEnvironmentUsesAuditProxy(t *testing.T) {
+	request := RunRequest{NetworkAudit: &NetworkAudit{}}
+
+	assert.Contains(t, containerEnvironment(request), "HTTPS_PROXY=http://"+auditProxyAlias+":8080")
+	assert.Contains(
+		t,
+		containerEnvironment(request),
+		"AGBX_PROXY_CA_CERTIFICATE="+auditCertificateTarget,
+	)
+	assert.Contains(t, containerEnvironment(request), "NODE_USE_ENV_PROXY=1")
+	assert.Empty(t, containerUser(request))
+}
+
 func TestMakeRawInputRestoresTerminal(t *testing.T) {
 	input, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
 	if err != nil {

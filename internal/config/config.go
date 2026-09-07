@@ -24,6 +24,7 @@ const (
 var ErrNotFound = errors.New("config file not found")
 
 type Config struct {
+	Network   NetworkConfig             `yaml:"network,omitempty"`
 	Prepare   PrepareConfig             `yaml:"prepare,omitempty"`
 	Providers map[string]ProviderConfig `yaml:"providers,omitempty"`
 	Image     Image                     `yaml:"image"`
@@ -38,6 +39,14 @@ type ProviderConfig struct {
 
 type PrepareConfig struct {
 	Dockerfiles []string `yaml:"dockerfiles,omitempty"`
+}
+
+type NetworkConfig struct {
+	Audit *AuditConfig `yaml:"audit,omitempty"`
+}
+
+type AuditConfig struct {
+	LogDirectory string `yaml:"log_directory"`
 }
 
 type Image struct {
@@ -84,6 +93,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateMounts(); err != nil {
 		return err
+	}
+	if c.Network.Audit != nil && strings.TrimSpace(c.Network.Audit.LogDirectory) == "" {
+		return errors.New("config network audit log directory is required")
 	}
 	if err := validateDockerfilePaths(c.Prepare.Dockerfiles); err != nil {
 		return fmt.Errorf("config prepare Dockerfiles: %w", err)
@@ -238,6 +250,9 @@ func Load(filePath string) (Config, error) {
 	if err := configuration.resolveDockerfilePaths(configurationDirectory); err != nil {
 		return Config{}, fmt.Errorf("resolve config Dockerfiles in file %q: %w", filePath, err)
 	}
+	if err := configuration.resolveAuditLogDirectory(configurationDirectory); err != nil {
+		return Config{}, fmt.Errorf("resolve config network audit in file %q: %w", filePath, err)
+	}
 
 	return configuration, nil
 }
@@ -268,6 +283,23 @@ func (c *Config) resolveDockerfilePaths(directory string) error {
 		}
 		c.Providers[name] = providerConfiguration
 	}
+
+	return nil
+}
+
+func (c *Config) resolveAuditLogDirectory(directory string) error {
+	if c.Network.Audit == nil {
+		return nil
+	}
+
+	logDirectory, err := expandEnvironmentVariables(c.Network.Audit.LogDirectory)
+	if err != nil {
+		return fmt.Errorf("log directory %q: %w", c.Network.Audit.LogDirectory, err)
+	}
+	if !filepath.IsAbs(logDirectory) {
+		logDirectory = filepath.Join(directory, logDirectory)
+	}
+	c.Network.Audit.LogDirectory = filepath.Clean(logDirectory)
 
 	return nil
 }

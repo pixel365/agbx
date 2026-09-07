@@ -2,29 +2,49 @@ package docker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 	mobyclient "github.com/moby/moby/client"
 )
 
 const (
 	defaultWorkspaceDirectory = "/workspace"
 	homeDirectory             = "/home/agbx"
+	auditCertificateTarget    = "/agbx/network-audit-ca.crt"
+	auditProxyAlias           = "agbx-network-audit"
+	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
+	auditProxyLogDirectory    = "/logs"
+
+	//nolint:nolintlint
+	auditProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
+
+	auditRuntimeEntrypoint = "/usr/local/bin/agbx-run"
+	auditProxyReadyTimeout = 10 * time.Second
+	auditProxySetOption    = "--set"
 )
 
 type RunRequest struct {
 	Input              io.Reader
 	Output             io.Writer
+	NetworkAudit       *NetworkAudit
 	Image              string
-	Mounts             []Mount
 	StateDirectory     string
 	User               string
 	WorkingDirectory   string
 	WorkspaceDirectory string
+	Mounts             []Mount
 	Command            []string
 	PullImage          bool
 }
@@ -35,11 +55,25 @@ type Mount struct {
 	ReadOnly bool
 }
 
+type NetworkAudit struct {
+	CertificatePath string
+	LogDirectory    string
+	NetworkName     string
+	ProxyConfigPath string
+}
+
 func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 	if request.PullImage {
 		if err := c.pullImage(ctx, request.Image); err != nil {
 			return err
 		}
+	}
+	if request.NetworkAudit != nil {
+		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
+		if err != nil {
+			return err
+		}
+		defer stopAudit()
 	}
 
 	createdContainer, err := c.createContainer(ctx, request)
@@ -84,6 +118,193 @@ func (c *Client) pullImage(ctx context.Context, image string) error {
 	return nil
 }
 
+func (c *Client) startNetworkAudit(
+	ctx context.Context,
+	audit *NetworkAudit,
+) (func(), error) {
+	networkName, err := newAuditNetworkName()
+	if err != nil {
+		return nil, err
+	}
+	audit.NetworkName = networkName
+	if err := c.ensureImage(ctx, auditProxyImage); err != nil {
+		return nil, err
+	}
+	if _, err := c.api.NetworkCreate(ctx, networkName, mobyclient.NetworkCreateOptions{
+		Driver:   "bridge",
+		Internal: true,
+		Labels:   map[string]string{"app.agbx.network-audit": "true"},
+	}); err != nil {
+		return nil, fmt.Errorf("create network audit network: %w", err)
+	}
+
+	proxy, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
+		Config: &container.Config{
+			Cmd: []string{
+				"mitmdump",
+				auditProxySetOption, "confdir=" + auditProxyConfigDirectory,
+				auditProxySetOption, "hardump=" + auditProxyLogDirectory + "/flows.har",
+				auditProxySetOption, "flow_detail=1",
+				auditProxySetOption, "onboarding=false",
+				auditProxySetOption, "save_stream_file=" + auditProxyLogDirectory + "/flows.mitm",
+				auditProxySetOption, "store_streamed_bodies=true",
+			},
+			Image: auditProxyImage,
+			Healthcheck: &container.HealthConfig{
+				Interval:      time.Second,
+				Retries:       3,
+				StartInterval: 100 * time.Millisecond,
+				StartPeriod:   5 * time.Second,
+				Test: []string{
+					"CMD",
+					"python3",
+					"-c",
+					"import socket; socket.create_connection(('127.0.0.1', 8080), 1).close()",
+				},
+				Timeout: time.Second,
+			},
+		},
+		HostConfig: &container.HostConfig{Mounts: []mount.Mount{
+			bindMount(audit.LogDirectory, auditProxyLogDirectory, false),
+			bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false),
+		}},
+	})
+	if err != nil {
+		c.removeNetworkAudit(audit, "")
+
+		return nil, fmt.Errorf("create network audit proxy: %w", err)
+	}
+	if _, err := c.api.NetworkConnect(ctx, networkName, mobyclient.NetworkConnectOptions{
+		Container: proxy.ID,
+		EndpointConfig: &network.EndpointSettings{
+			Aliases: []string{auditProxyAlias},
+		},
+	}); err != nil {
+		c.removeNetworkAudit(audit, proxy.ID)
+
+		return nil, fmt.Errorf("connect network audit proxy: %w", err)
+	}
+	if _, err := c.api.ContainerStart(
+		ctx,
+		proxy.ID,
+		mobyclient.ContainerStartOptions{},
+	); err != nil {
+		c.removeNetworkAudit(audit, proxy.ID)
+
+		return nil, fmt.Errorf("start network audit proxy: %w", err)
+	}
+	if err := c.waitForNetworkAuditProxy(ctx, proxy.ID); err != nil {
+		c.removeNetworkAudit(audit, proxy.ID)
+
+		return nil, err
+	}
+
+	return func() {
+		c.removeNetworkAudit(audit, proxy.ID)
+	}, nil
+}
+
+func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) error {
+	readyContext, cancel := context.WithTimeout(ctx, auditProxyReadyTimeout)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		inspection, err := c.api.ContainerInspect(
+			readyContext,
+			proxyID,
+			mobyclient.ContainerInspectOptions{},
+		)
+		if err != nil {
+			return fmt.Errorf("inspect network audit proxy: %w", err)
+		}
+		if inspection.Container.State == nil {
+			return errors.New("inspect network audit proxy: container state is missing")
+		}
+		if !inspection.Container.State.Running {
+			return fmt.Errorf(
+				"network audit proxy exited: %s",
+				inspection.Container.State.Error,
+			)
+		}
+		if inspection.Container.State.Health != nil {
+			switch inspection.Container.State.Health.Status {
+			case container.Healthy:
+				return nil
+			case container.NoHealthcheck, container.Starting:
+				// Continue waiting for Docker to run the health check.
+			case container.Unhealthy:
+				return errors.New("network audit proxy is unhealthy")
+			}
+		}
+
+		select {
+		case <-readyContext.Done():
+			return fmt.Errorf("wait for network audit proxy: %w", readyContext.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *Client) ensureImage(ctx context.Context, image string) error {
+	hasImage, err := c.HasImage(ctx, image)
+	if err != nil {
+		return fmt.Errorf("check network audit proxy image: %w", err)
+	}
+	if hasImage {
+		return nil
+	}
+	if err := c.pullImage(ctx, image); err != nil {
+		return fmt.Errorf("pull network audit proxy image: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) removeNetworkAudit(audit *NetworkAudit, proxyID string) {
+	ctx := context.Background()
+	if proxyID != "" {
+		_, _ = c.api.ContainerStop(ctx, proxyID, mobyclient.ContainerStopOptions{})
+		c.writeAuditProxyLog(ctx, audit.LogDirectory, proxyID)
+		_, _ = c.api.ContainerRemove(ctx, proxyID, mobyclient.ContainerRemoveOptions{Force: true})
+	}
+	_, _ = c.api.NetworkRemove(ctx, audit.NetworkName, mobyclient.NetworkRemoveOptions{})
+}
+
+func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxyID string) {
+	logs, err := c.api.ContainerLogs(ctx, proxyID, mobyclient.ContainerLogsOptions{
+		ShowStderr: true,
+		ShowStdout: true,
+	})
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = logs.Close()
+	}()
+
+	filePath := filepath.Join(directory, "proxy.log")
+	// #nosec G304 -- The log directory is explicitly selected in the audit configuration.
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+	_, _ = stdcopy.StdCopy(file, file, logs)
+}
+
+func newAuditNetworkName() (string, error) {
+	identifier := make([]byte, 8)
+	if _, err := rand.Read(identifier); err != nil {
+		return "", fmt.Errorf("generate network audit identifier: %w", err)
+	}
+
+	return "agbx-audit-" + hex.EncodeToString(identifier), nil
+}
+
 func (c *Client) createContainer(
 	ctx context.Context,
 	request RunRequest,
@@ -93,24 +314,85 @@ func (c *Client) createContainer(
 			AttachStdin:  true,
 			AttachStdout: true,
 			AttachStderr: true,
-			Cmd:          request.Command,
-			Env:          []string{"HOME=" + homeDirectory},
+			Cmd:          containerCommand(request),
+			Env:          containerEnvironment(request),
 			Image:        request.Image,
 			OpenStdin:    true,
 			Tty:          true,
-			User:         request.User,
+			User:         containerUser(request),
 			WorkingDir:   containerWorkspaceDirectory(request),
 		},
 		HostConfig: &container.HostConfig{
-			AutoRemove: true,
-			Mounts:     containerMounts(request),
+			AutoRemove:  true,
+			Mounts:      containerMounts(request),
+			NetworkMode: containerNetworkMode(request),
 		},
+		NetworkingConfig: containerNetworkingConfig(request),
 	})
 	if err != nil {
 		return mobyclient.ContainerCreateResult{}, fmt.Errorf("create container: %w", err)
 	}
 
 	return createdContainer, nil
+}
+
+func containerCommand(request RunRequest) []string {
+	if request.NetworkAudit == nil {
+		return request.Command
+	}
+
+	command := make([]string, 0, len(request.Command)+2)
+	command = append(command, auditRuntimeEntrypoint, request.User)
+
+	return append(command, request.Command...)
+}
+
+func containerEnvironment(request RunRequest) []string {
+	environment := []string{"HOME=" + homeDirectory}
+	if request.NetworkAudit == nil {
+		return environment
+	}
+
+	proxyURL := "http://" + auditProxyAlias + ":8080"
+	return append(environment,
+		"AGBX_PROXY_CA_CERTIFICATE="+auditCertificateTarget,
+		"ALL_PROXY="+proxyURL,
+		"HTTP_PROXY="+proxyURL,
+		"HTTPS_PROXY="+proxyURL,
+		"NODE_EXTRA_CA_CERTS="+auditCertificateTarget,
+		"NODE_USE_ENV_PROXY=1",
+		"NO_PROXY=localhost,127.0.0.1,::1",
+		"all_proxy="+proxyURL,
+		"http_proxy="+proxyURL,
+		"https_proxy="+proxyURL,
+		"no_proxy=localhost,127.0.0.1,::1",
+	)
+}
+
+func containerUser(request RunRequest) string {
+	if request.NetworkAudit != nil {
+		return ""
+	}
+
+	return request.User
+}
+
+func containerNetworkMode(request RunRequest) container.NetworkMode {
+	if request.NetworkAudit == nil {
+		return ""
+	}
+
+	return container.NetworkMode(request.NetworkAudit.NetworkName)
+}
+
+func containerNetworkingConfig(request RunRequest) *network.NetworkingConfig {
+	if request.NetworkAudit == nil {
+		return nil
+	}
+
+	return &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+		request.NetworkAudit.NetworkName: {},
+	}}
 }
 
 func containerMounts(request RunRequest) []mount.Mount {
@@ -128,6 +410,12 @@ func containerMounts(request RunRequest) []mount.Mount {
 				additionalMount.Target,
 				additionalMount.ReadOnly,
 			),
+		)
+	}
+	if request.NetworkAudit != nil {
+		mounts = append(
+			mounts,
+			bindMount(request.NetworkAudit.CertificatePath, auditCertificateTarget, true),
 		)
 	}
 

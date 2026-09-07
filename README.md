@@ -161,6 +161,31 @@ commands remain available through `agbx run codex -- <command>`.
 `read_only` defaults to `true`. Mount targets must be absolute paths within
 `/agbx`; overlapping targets are rejected.
 
+### Network audit
+
+To capture outgoing HTTP(S) requests and responses, enable a network audit and
+choose a host directory for its logs:
+
+```yaml
+network:
+  audit:
+    log_directory: ${HOME}/.local/state/agbx/network/logs/my-project
+```
+
+`agbx` creates an isolated Docker network for the agent and starts an
+intercepting proxy as its only network peer. The proxy records both an
+incremental `flows.mitm` file and `flows.har` when the run ends. Its diagnostic
+output is written to `proxy.log`. Its local CA is trusted only inside the agent
+container; the private key is stored under
+`${XDG_STATE_HOME:-~/.local/state}/agbx/network` with private permissions and
+is mounted only into the proxy container.
+
+The first audited run pulls the pinned `mitmproxy` image. The prepared provider
+image must include the current agbx runtime, so run `agbx prepare <provider>`
+again after upgrading agbx before enabling this option. Requests that do not
+support standard HTTP proxy environment variables cannot bypass the audit: they
+will fail because the agent container has no direct network route.
+
 ## Commands
 
 | Command                              | Description                                                      |
