@@ -106,7 +106,8 @@ func TestLoadReadsDockerfiles(t *testing.T) {
 func TestLoadReadsNetworkAudit(t *testing.T) {
 	directory := t.TempDir()
 	filePath := filepath.Join(directory, defaultYAMLFileName)
-	contents := validConfigYAML + "network:\n  audit:\n    log_directory: " + auditLogDirectory + "\n"
+	contents := validConfigYAML + "network:\n  audit:\n    log_directory: " + auditLogDirectory +
+		"\n    retention:\n      max_runs: 20\n      max_age: 168h\n"
 	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
 
 	configuration, err := Load(filePath)
@@ -117,6 +118,11 @@ func TestLoadReadsNetworkAudit(t *testing.T) {
 		t,
 		filepath.Join(directory, auditLogDirectory),
 		configuration.Network.Audit.LogDirectory,
+	)
+	assert.Equal(
+		t,
+		AuditRetention{MaxRuns: 20, MaxAge: "168h"},
+		configuration.Network.Audit.Retention,
 	)
 }
 
@@ -288,7 +294,45 @@ func TestConfigValidateRequiresNetworkAuditLogDirectory(t *testing.T) {
 
 	err := configuration.Validate()
 
-	assert.EqualError(t, err, "config network audit log directory is required")
+	assert.EqualError(t, err, "config network audit: log directory is required")
+}
+
+func TestConfigValidateRejectsInvalidNetworkAuditRetention(t *testing.T) {
+	testCases := []struct {
+		name      string
+		want      string
+		retention AuditRetention
+	}{
+		{
+			name:      "negative max runs",
+			retention: AuditRetention{MaxRuns: -1},
+			want:      "config network audit: max runs must not be negative",
+		},
+		{
+			name:      "invalid max age",
+			retention: AuditRetention{MaxAge: "tomorrow"},
+			want:      "config network audit: parse max age \"tomorrow\": time: invalid duration \"tomorrow\"",
+		},
+		{
+			name:      "negative max age",
+			retention: AuditRetention{MaxAge: "-1h"},
+			want:      "config network audit: max age must not be negative",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			configuration := validConfig
+			configuration.Network.Audit = &AuditConfig{
+				LogDirectory: auditLogDirectory,
+				Retention:    testCase.retention,
+			}
+
+			err := configuration.Validate()
+
+			assert.EqualError(t, err, testCase.want)
+		})
+	}
 }
 
 func TestConfigValidateRejectsInvalidMount(t *testing.T) {

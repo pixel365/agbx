@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v4"
 )
@@ -46,7 +47,13 @@ type NetworkConfig struct {
 }
 
 type AuditConfig struct {
-	LogDirectory string `yaml:"log_directory"`
+	LogDirectory string         `yaml:"log_directory"`
+	Retention    AuditRetention `yaml:"retention,omitempty"`
+}
+
+type AuditRetention struct {
+	MaxAge  string `yaml:"max_age,omitempty"`
+	MaxRuns int    `yaml:"max_runs,omitempty"`
 }
 
 type Image struct {
@@ -94,8 +101,10 @@ func (c Config) Validate() error {
 	if err := c.validateMounts(); err != nil {
 		return err
 	}
-	if c.Network.Audit != nil && strings.TrimSpace(c.Network.Audit.LogDirectory) == "" {
-		return errors.New("config network audit log directory is required")
+	if c.Network.Audit != nil {
+		if err := c.Network.Audit.Validate(); err != nil {
+			return fmt.Errorf("config network audit: %w", err)
+		}
 	}
 	if err := validateDockerfilePaths(c.Prepare.Dockerfiles); err != nil {
 		return fmt.Errorf("config prepare Dockerfiles: %w", err)
@@ -109,6 +118,26 @@ func (c Config) Validate() error {
 		}
 		if err := validateDockerfilePaths(c.Providers[name].Dockerfiles); err != nil {
 			return fmt.Errorf("config provider %q Dockerfiles: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+func (c AuditConfig) Validate() error {
+	if strings.TrimSpace(c.LogDirectory) == "" {
+		return errors.New("log directory is required")
+	}
+	if c.Retention.MaxRuns < 0 {
+		return errors.New("max runs must not be negative")
+	}
+	if c.Retention.MaxAge != "" {
+		maxAge, err := time.ParseDuration(c.Retention.MaxAge)
+		if err != nil {
+			return fmt.Errorf("parse max age %q: %w", c.Retention.MaxAge, err)
+		}
+		if maxAge < 0 {
+			return errors.New("max age must not be negative")
 		}
 	}
 

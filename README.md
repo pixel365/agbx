@@ -170,6 +170,9 @@ choose a host directory for its logs:
 network:
   audit:
     log_directory: ${HOME}/.local/state/agbx/network/logs/my-project
+    retention:
+      max_runs: 20
+      max_age: 168h
 ```
 
 `agbx` creates an isolated Docker network for the agent and starts an
@@ -180,6 +183,12 @@ output is written to `proxy.log`. Its local CA is trusted only inside the agent
 container; the private key is stored under
 `${XDG_STATE_HOME:-~/.local/state}/agbx/network` with private permissions and
 is mounted only into the proxy container.
+
+`retention.max_runs` keeps the newest number of audited runs, while
+`retention.max_age` deletes runs older than a Go duration. Either limit can be
+omitted; `max_runs: 0` also disables the count limit. Cleanup happens when a
+new audit starts and only considers timestamped run directories created by
+`agbx`.
 
 The first audited run pulls the pinned `mitmproxy` image. The prepared provider
 image must include the current agbx runtime, so run `agbx prepare <provider>`

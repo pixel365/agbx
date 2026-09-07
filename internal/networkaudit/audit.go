@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/pixel365/agbx/internal/config"
@@ -55,12 +57,171 @@ func Setup(configuration config.AuditConfig) (Settings, error) {
 			configuration.LogDirectory, err,
 		)
 	}
+	if hasRetention(configuration.Retention) {
+		if err := cleanupRunDirectories(configuration, logDirectory, time.Now().UTC()); err != nil {
+			return Settings{}, err
+		}
+	}
 
 	return Settings{
 		CertificatePath: certificatePath,
 		LogDirectory:    logDirectory,
 		ProxyConfigPath: proxyConfigPath,
 	}, nil
+}
+
+func hasRetention(retention config.AuditRetention) bool {
+	return retention.MaxRuns > 0 || retention.MaxAge != ""
+}
+
+type runDirectory struct {
+	createdAt time.Time
+	path      string
+}
+
+func cleanupRunDirectories(
+	configuration config.AuditConfig,
+	currentDirectory string,
+	now time.Time,
+) error {
+	maxAge, err := retentionMaxAge(configuration.Retention.MaxAge)
+	if err != nil {
+		return err
+	}
+	runDirectories, err := auditRunDirectories(configuration.LogDirectory)
+	if err != nil {
+		return fmt.Errorf("list network audit run directories: %w", err)
+	}
+	runDirectories, err = removeExpiredRuns(runDirectories, currentDirectory, now, maxAge)
+	if err != nil {
+		return err
+	}
+	if err := removeExcessRuns(
+		runDirectories,
+		currentDirectory,
+		configuration.Retention.MaxRuns,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func retentionMaxAge(value string) (time.Duration, error) {
+	if value == "" {
+		return 0, nil
+	}
+
+	maxAge, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse network audit max age %q: %w", value, err)
+	}
+	if maxAge < 0 {
+		return 0, errors.New("network audit max age must not be negative")
+	}
+
+	return maxAge, nil
+}
+
+func auditRunDirectories(parentDirectory string) ([]runDirectory, error) {
+	entries, err := os.ReadDir(parentDirectory)
+	if err != nil {
+		return nil, err
+	}
+
+	runDirectories := make([]runDirectory, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		createdAt, ok := parseRunDirectoryName(entry.Name())
+		if !ok {
+			continue
+		}
+		runDirectories = append(runDirectories, runDirectory{
+			createdAt: createdAt,
+			path:      filepath.Join(parentDirectory, entry.Name()),
+		})
+	}
+	sort.Slice(runDirectories, func(first int, second int) bool {
+		return runDirectories[first].createdAt.Before(runDirectories[second].createdAt)
+	})
+
+	return runDirectories, nil
+}
+
+func parseRunDirectoryName(name string) (time.Time, bool) {
+	parts := strings.Split(name, "-")
+	if len(parts) != 2 || len(parts[1]) != 16 {
+		return time.Time{}, false
+	}
+	if _, err := hex.DecodeString(parts[1]); err != nil {
+		return time.Time{}, false
+	}
+
+	createdAt, err := time.Parse(runDirectoryTimeFormat, parts[0])
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return createdAt, true
+}
+
+func removeExpiredRuns(
+	runDirectories []runDirectory,
+	currentDirectory string,
+	now time.Time,
+	maxAge time.Duration,
+) ([]runDirectory, error) {
+	if maxAge == 0 {
+		return runDirectories, nil
+	}
+
+	cutoff := now.Add(-maxAge)
+	remaining := make([]runDirectory, 0, len(runDirectories))
+	for _, directory := range runDirectories {
+		if directory.path == currentDirectory || !directory.createdAt.Before(cutoff) {
+			remaining = append(remaining, directory)
+
+			continue
+		}
+		if err := removeRunDirectory(directory.path); err != nil {
+			return nil, err
+		}
+	}
+
+	return remaining, nil
+}
+
+func removeExcessRuns(runDirectories []runDirectory, currentDirectory string, maxRuns int) error {
+	if maxRuns == 0 || len(runDirectories) <= maxRuns {
+		return nil
+	}
+
+	toRemove := len(runDirectories) - maxRuns
+	for _, directory := range runDirectories {
+		if toRemove == 0 {
+			break
+		}
+		if directory.path == currentDirectory {
+			continue
+		}
+		if err := removeRunDirectory(directory.path); err != nil {
+			return err
+		}
+		toRemove--
+	}
+
+	return nil
+}
+
+func removeRunDirectory(directory string) error {
+	// #nosec G703 -- The path is a validated direct child using agbx's run-directory format.
+	if err := os.RemoveAll(directory); err != nil {
+		return fmt.Errorf("remove network audit run directory %q: %w", directory, err)
+	}
+
+	return nil
 }
 
 func createRunDirectory(parentDirectory string) (string, error) {

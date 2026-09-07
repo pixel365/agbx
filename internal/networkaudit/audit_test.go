@@ -6,11 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
+)
+
+const (
+	firstRunIdentifier  = "0000000000000001"
+	secondRunIdentifier = "0000000000000002"
+	thirdRunIdentifier  = "0000000000000003"
 )
 
 func TestSetupCreatesCertificateAndLogDirectory(t *testing.T) {
@@ -59,4 +66,93 @@ func TestSetupReusesCertificate(t *testing.T) {
 	assert.Equal(t, first.CertificatePath, second.CertificatePath)
 	assert.Equal(t, first.ProxyConfigPath, second.ProxyConfigPath)
 	assert.Equal(t, firstCertificate, secondCertificate)
+}
+
+func TestCleanupRunDirectoriesKeepsNewestRuns(t *testing.T) {
+	logDirectory := t.TempDir()
+	now := time.Date(2026, time.September, 7, 15, 0, 0, 0, time.UTC)
+	oldestDirectory := createTestRunDirectory(
+		t,
+		logDirectory,
+		now.Add(-2*time.Hour),
+		firstRunIdentifier,
+	)
+	newerDirectory := createTestRunDirectory(
+		t,
+		logDirectory,
+		now.Add(-time.Hour),
+		secondRunIdentifier,
+	)
+	currentDirectory := createTestRunDirectory(t, logDirectory, now, thirdRunIdentifier)
+
+	err := cleanupRunDirectories(
+		config.AuditConfig{
+			LogDirectory: logDirectory,
+			Retention:    config.AuditRetention{MaxRuns: 2},
+		},
+		currentDirectory,
+		now,
+	)
+
+	require.NoError(t, err)
+	assertDirectoryRemoved(t, oldestDirectory)
+	assert.DirExists(t, newerDirectory)
+	assert.DirExists(t, currentDirectory)
+}
+
+func TestCleanupRunDirectoriesRemovesExpiredRunsOnly(t *testing.T) {
+	logDirectory := t.TempDir()
+	now := time.Date(2026, time.September, 7, 15, 0, 0, 0, time.UTC)
+	expiredDirectory := createTestRunDirectory(
+		t,
+		logDirectory,
+		now.Add(-2*time.Hour),
+		firstRunIdentifier,
+	)
+	recentDirectory := createTestRunDirectory(
+		t,
+		logDirectory,
+		now.Add(-30*time.Minute),
+		secondRunIdentifier,
+	)
+	currentDirectory := createTestRunDirectory(t, logDirectory, now, thirdRunIdentifier)
+	unmanagedDirectory := filepath.Join(logDirectory, "notes")
+	require.NoError(t, os.Mkdir(unmanagedDirectory, 0o700))
+
+	err := cleanupRunDirectories(
+		config.AuditConfig{
+			LogDirectory: logDirectory,
+			Retention:    config.AuditRetention{MaxAge: "1h"},
+		},
+		currentDirectory,
+		now,
+	)
+
+	require.NoError(t, err)
+	assertDirectoryRemoved(t, expiredDirectory)
+	assert.DirExists(t, recentDirectory)
+	assert.DirExists(t, currentDirectory)
+	assert.DirExists(t, unmanagedDirectory)
+}
+
+func createTestRunDirectory(
+	t *testing.T,
+	parentDirectory string,
+	createdAt time.Time,
+	identifier string,
+) string {
+	t.Helper()
+	directory := filepath.Join(
+		parentDirectory,
+		createdAt.UTC().Format(runDirectoryTimeFormat)+"-"+identifier,
+	)
+	require.NoError(t, os.Mkdir(directory, 0o700))
+
+	return directory
+}
+
+func assertDirectoryRemoved(t *testing.T, directory string) {
+	t.Helper()
+	_, err := os.Stat(directory)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
