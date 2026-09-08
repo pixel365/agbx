@@ -37,3 +37,18 @@ jobs:
           name: coverage
           path: coverage.out
           retention-days: 14
+
+  integration:
+    name: Docker integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+
+      - name: Set up Go
+        uses: actions/setup-go@fba3fb4ead8c8e09a06f1d32ae5436e5818eff15
+        with:
+          go-version-file: go.mod
+
+      - name: Run Docker integration tests
+        run: go test -tags=integration -v ./internal/docker
