@@ -34,6 +34,8 @@ func TestPolicyAllowsDefaultAllow(t *testing.T) {
 
 	assert.True(t, policy.Allows("allowed.example.com", 443))
 	assert.False(t, policy.Allows("blocked.example.com", 443))
+	assert.False(t, policy.Allows("203.0.113.1", 443))
+	assert.False(t, policy.Allows("2001:db8::1", 443))
 }
 
 func TestPolicyValidate(t *testing.T) {

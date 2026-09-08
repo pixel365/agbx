@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
-	"github.com/pixel365/agbx/internal/networkaudit"
+	"github.com/pixel365/agbx/internal/networkproxy"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -47,7 +47,7 @@ func TestIntegrationAgentSecurityState(t *testing.T) {
 				requireUnprivilegedSecurityState(t, output, user)
 			})
 			t.Run("audit", func(t *testing.T) {
-				output := runSecurityStateProbe(t, client, image, user, newSecurityTestAudit(t))
+				output := runSecurityStateProbe(t, client, image, user, newSecurityTestProxy(t))
 				requireUnprivilegedSecurityState(t, output, user)
 			})
 		})
@@ -97,16 +97,16 @@ func buildSecurityTestImage(t *testing.T, client *Client, baseImage config.Image
 	return image
 }
 
-func newSecurityTestAudit(t *testing.T) *NetworkAudit {
+func newSecurityTestProxy(t *testing.T) *NetworkProxy {
 	t.Helper()
 
 	directory := securityTestDirectory(t)
 	t.Setenv("XDG_STATE_HOME", directory)
-	settings, err := networkaudit.Setup(&config.AuditConfig{
+	settings, err := networkproxy.Setup(&config.AuditConfig{
 		LogDirectory: filepath.Join(directory, "audit"),
 	}, nil)
 	require.NoError(t, err)
-	return &NetworkAudit{
+	return &NetworkProxy{
 		CertificatePath:     settings.CertificatePath,
 		LogDirectory:        settings.LogDirectory,
 		ProxyConfigPath:     settings.ProxyConfigPath,
@@ -119,7 +119,7 @@ func runSecurityStateProbe(
 	client *Client,
 	image string,
 	user string,
-	audit *NetworkAudit,
+	proxy *NetworkProxy,
 ) string {
 	t.Helper()
 
@@ -136,7 +136,7 @@ func runSecurityStateProbe(
 		},
 		Image:            image,
 		Input:            bytes.NewReader(nil),
-		NetworkAudit:     audit,
+		NetworkProxy:     proxy,
 		StateDirectory:   stateDirectory,
 		User:             user,
 		WorkingDirectory: workspace,

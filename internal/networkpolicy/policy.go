@@ -68,7 +68,10 @@ func (p Policy) Allows(host string, port int) bool {
 		return false
 	}
 
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	host = strings.Trim(strings.ToLower(strings.TrimSuffix(host, ".")), "[]")
+	if net.ParseIP(host) != nil {
+		return false
+	}
 	if matchesAny(p.Deny, host) {
 		return false
 	}

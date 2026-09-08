@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
-	"github.com/pixel365/agbx/internal/networkaudit"
 	"github.com/pixel365/agbx/internal/networkpolicy"
+	"github.com/pixel365/agbx/internal/networkproxy"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -33,38 +33,41 @@ const (
 	networkPolicyStatusFileName      = "status"
 )
 
-func TestNetworkPolicy(t *testing.T) {
+func TestNetworkPolicyWithAudit(t *testing.T) {
 	client := newNetworkPolicyTestClient(t)
 	image := buildNetworkPolicyTestImage(t, client)
-	audit := newNetworkPolicyTestAudit(t, networkpolicy.Policy{
+	auditDirectory := networkPolicyTestDirectory(t)
+	proxy := newNetworkPolicyTestProxy(t, &config.AuditConfig{
+		LogDirectory: filepath.Join(auditDirectory, "audit"),
+	}, networkpolicy.Policy{
 		Default: networkpolicy.DefaultDeny,
 		Allow:   []string{networkPolicyAllowedHost},
 	})
-	require.FileExists(t, audit.PolicyScriptPath)
+	require.FileExists(t, proxy.PolicyScriptPath)
 
-	stopProxy, err := client.startNetworkAudit(t.Context(), audit)
+	stopProxy, err := client.startNetworkProxy(t.Context(), proxy)
 	require.NoError(t, err)
 	proxyStopped := false
 	t.Cleanup(func() {
 		if !proxyStopped {
 			stopProxy()
 		}
-		removeNetworkAuditScripts(audit)
+		removeNetworkProxyScripts(proxy)
 	})
-	startNetworkPolicyTestServer(t, client, image, audit.NetworkName)
+	startNetworkPolicyTestServer(t, client, image, proxy.NetworkName)
 
 	allowedStatus := runNetworkPolicyRequest(
 		t,
 		client,
 		image,
-		audit,
+		proxy,
 		networkPolicyAllowedHost,
 	)
 	blockedStatus := runNetworkPolicyRequest(
 		t,
 		client,
 		image,
-		audit,
+		proxy,
 		networkPolicyBlockedHost,
 	)
 
@@ -73,15 +76,59 @@ func TestNetworkPolicy(t *testing.T) {
 
 	stopProxy()
 	proxyStopped = true
-	removeNetworkAuditScripts(audit)
-	assert.NoFileExists(t, audit.PolicyScriptPath)
+	removeNetworkProxyScripts(proxy)
+	assert.NoFileExists(t, proxy.PolicyScriptPath)
 
 	// #nosec G304 -- The file is created by the proxy in this test's audit run directory.
-	flows, err := os.ReadFile(filepath.Join(audit.LogDirectory, "flows.har"))
+	flows, err := os.ReadFile(filepath.Join(proxy.LogDirectory, "flows.har"))
 	require.NoError(t, err)
 	assert.Contains(t, string(flows), networkPolicyAllowedHost)
 	assert.Contains(t, string(flows), networkPolicyBlockedHost)
 	assert.Contains(t, string(flows), `"status": 403`)
+}
+
+func TestNetworkPolicyWithoutAudit(t *testing.T) {
+	client := newNetworkPolicyTestClient(t)
+	image := buildNetworkPolicyTestImage(t, client)
+	proxy := newNetworkPolicyTestProxy(t, nil, networkpolicy.Policy{
+		Default: networkpolicy.DefaultDeny,
+		Allow:   []string{networkPolicyAllowedHost},
+	})
+	require.Empty(t, proxy.LogDirectory)
+
+	stopProxy, err := client.startNetworkProxy(t.Context(), proxy)
+	require.NoError(t, err)
+	proxyStopped := false
+	t.Cleanup(func() {
+		if !proxyStopped {
+			stopProxy()
+		}
+		removeNetworkProxyScripts(proxy)
+	})
+	startNetworkPolicyTestServer(t, client, image, proxy.NetworkName)
+
+	allowedStatus := runNetworkPolicyRequest(
+		t,
+		client,
+		image,
+		proxy,
+		networkPolicyAllowedHost,
+	)
+	blockedConnect := runNetworkPolicyHTTPSConnect(
+		t,
+		client,
+		image,
+		proxy,
+		networkPolicyBlockedHost,
+	)
+
+	assert.Equal(t, "200", allowedStatus)
+	assert.Contains(t, blockedConnect, "403")
+
+	stopProxy()
+	proxyStopped = true
+	removeNetworkProxyScripts(proxy)
+	assert.NoFileExists(t, proxy.PolicyScriptPath)
 }
 
 func newNetworkPolicyTestClient(t *testing.T) *Client {
@@ -122,17 +169,19 @@ func buildNetworkPolicyTestImage(t *testing.T, client *Client) string {
 	return image
 }
 
-func newNetworkPolicyTestAudit(t *testing.T, policy networkpolicy.Policy) *NetworkAudit {
+func newNetworkPolicyTestProxy(
+	t *testing.T,
+	audit *config.AuditConfig,
+	policy networkpolicy.Policy,
+) *NetworkProxy {
 	t.Helper()
 
 	directory := networkPolicyTestDirectory(t)
 	t.Setenv("XDG_STATE_HOME", directory)
-	settings, err := networkaudit.Setup(&config.AuditConfig{
-		LogDirectory: filepath.Join(directory, "audit"),
-	}, &policy)
+	settings, err := networkproxy.Setup(audit, &policy)
 	require.NoError(t, err)
 
-	return &NetworkAudit{
+	return &NetworkProxy{
 		CertificatePath:     settings.CertificatePath,
 		LogDirectory:        settings.LogDirectory,
 		PolicyScriptPath:    settings.PolicyScriptPath,
@@ -202,8 +251,35 @@ func runNetworkPolicyRequest(
 	t *testing.T,
 	client *Client,
 	image string,
-	audit *NetworkAudit,
+	proxy *NetworkProxy,
 	host string,
+) string {
+	command := "env -u NO_PROXY -u no_proxy curl --silent --output /dev/null --write-out '%{http_code}' http://" +
+		host + ":" + networkPolicyServerPort
+
+	return runNetworkPolicyCommand(t, client, image, proxy, command)
+}
+
+func runNetworkPolicyHTTPSConnect(
+	t *testing.T,
+	client *Client,
+	image string,
+	proxy *NetworkProxy,
+	host string,
+) string {
+	// HTTPS and WSS establish a CONNECT tunnel before the proxy reaches the upstream host.
+	command := "(env -u NO_PROXY -u no_proxy curl --silent --show-error --connect-timeout 2 --proxy http://" +
+		networkProxyAlias + ":8080 https://" + host + ") || true"
+
+	return runNetworkPolicyCommand(t, client, image, proxy, command)
+}
+
+func runNetworkPolicyCommand(
+	t *testing.T,
+	client *Client,
+	image string,
+	proxy *NetworkProxy,
+	command string,
 ) string {
 	t.Helper()
 
@@ -213,13 +289,12 @@ func runNetworkPolicyRequest(
 		Command: []string{
 			"sh",
 			"-c",
-			"env -u NO_PROXY -u no_proxy curl --silent --output /dev/null --write-out '%{http_code}' http://" +
-				host + ":" + networkPolicyServerPort + " > " + defaultWorkspaceDirectory + "/" +
-				networkPolicyStatusFileName,
+			"{ " + command + "; } > " + defaultWorkspaceDirectory + "/" +
+				networkPolicyStatusFileName + " 2>&1",
 		},
 		Image:            image,
 		Input:            bytes.NewReader(nil),
-		NetworkAudit:     audit,
+		NetworkProxy:     proxy,
 		StateDirectory:   stateDirectory,
 		User:             networkPolicyTestUser(t),
 		WorkingDirectory: workspace,

@@ -16,7 +16,7 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
-	"github.com/pixel365/agbx/internal/networkaudit"
+	"github.com/pixel365/agbx/internal/networkproxy"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -112,7 +112,7 @@ func runProvider(
 	if err != nil {
 		return err
 	}
-	networkAudit, err := networkAuditConfiguration(configuration, selectedProvider.Name())
+	networkProxy, err := networkProxyConfiguration(configuration, selectedProvider.Name())
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func runProvider(
 		Image:              imageReference,
 		Input:              cmd.InOrStdin(),
 		Mounts:             dockerMounts(mounts),
-		NetworkAudit:       networkAudit,
+		NetworkProxy:       networkProxy,
 		Output:             cmd.OutOrStdout(),
 		PullImage:          false,
 		StateDirectory:     stateDirectory,
@@ -160,21 +160,21 @@ func ensureProviderImage(
 	return err
 }
 
-func networkAuditConfiguration(
+func networkProxyConfiguration(
 	configuration config.Config,
 	providerName string,
-) (*docker.NetworkAudit, error) {
+) (*docker.NetworkProxy, error) {
 	policy := configuration.NetworkPolicyForProvider(providerName)
 	if configuration.Network.Audit == nil && policy == nil {
 		return nil, nil
 	}
 
-	settings, err := networkaudit.Setup(configuration.Network.Audit, policy)
+	settings, err := networkproxy.Setup(configuration.Network.Audit, policy)
 	if err != nil {
 		return nil, fmt.Errorf("set up network proxy: %w", err)
 	}
 
-	return &docker.NetworkAudit{
+	return &docker.NetworkProxy{
 		CertificatePath:     settings.CertificatePath,
 		LogDirectory:        settings.LogDirectory,
 		PolicyScriptPath:    settings.PolicyScriptPath,

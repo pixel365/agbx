@@ -1,4 +1,4 @@
-package networkaudit
+package networkproxy
 
 import (
 	"crypto/x509"
@@ -112,6 +112,7 @@ func TestSetupCreatesPolicyScriptWithoutAudit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(contents), `DEFAULT = "deny"`)
 	assert.Contains(t, string(contents), "api.example.com")
+	assert.Contains(t, string(contents), "ipaddress.ip_address(host.strip(\"[]\"))")
 }
 
 func TestCleanupRunDirectoriesKeepsNewestRuns(t *testing.T) {

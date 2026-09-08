@@ -1,4 +1,4 @@
-package networkaudit
+package networkproxy
 
 import (
 	"crypto/ecdsa"
@@ -62,7 +62,9 @@ def response(flow: http.HTTPFlow) -> None:
 def error(flow: http.HTTPFlow) -> None:
     redact_request(flow.request)
 `
-	policyScriptTemplate = `from mitmproxy import http
+	policyScriptTemplate = `import ipaddress
+
+from mitmproxy import http
 
 DEFAULT = %q
 ALLOWED_HOSTS = frozenset(%s)
@@ -83,6 +85,11 @@ def matches_any(patterns, host: str) -> bool:
 def is_allowed(host: str, port: int) -> bool:
     if port not in ALLOWED_PORTS:
         return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return False
+    except ValueError:
+        pass
     if matches_any(DENIED_HOSTS, host):
         return False
     if matches_any(ALLOWED_HOSTS, host):

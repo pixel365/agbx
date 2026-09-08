@@ -23,33 +23,33 @@ import (
 )
 
 const (
-	defaultWorkspaceDirectory = "/workspace"
-	homeDirectory             = "/home/agbx"
-	auditProxyHomeDirectory   = "/home/mitmproxy"
-	auditCertificateTarget    = "/agbx/network-audit-ca.crt"
-	auditProxyAlias           = "agbx-network-audit"
-	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
-	auditProxyLogDirectory    = "/logs"
-	auditProxyRedactionScript = "/agbx/redact.py"
-	auditProxyEntrypoint      = "bash"
-	auditProxyEntrypointName  = "agbx-audit-proxy"
-	allCapabilities           = "ALL"
-	noNewPrivileges           = "no-new-privileges=true"
-	rootUser                  = "0:0"
+	defaultWorkspaceDirectory     = "/workspace"
+	homeDirectory                 = "/home/agbx"
+	networkProxyHomeDirectory     = "/home/mitmproxy"
+	networkProxyCertificateTarget = "/agbx/network-proxy-ca.crt"
+	networkProxyAlias             = "agbx-network-proxy"
+	networkProxyConfigDirectory   = "/home/mitmproxy/.mitmproxy"
+	networkProxyLogDirectory      = "/logs"
+	networkProxyRedactionScript   = "/agbx/redact.py"
+	networkProxyEntrypoint        = "bash"
+	networkProxyEntrypointName    = "agbx-network-proxy"
+	allCapabilities               = "ALL"
+	noNewPrivileges               = "no-new-privileges=true"
+	rootUser                      = "0:0"
 
 	//nolint:nolintlint
-	auditProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
+	networkProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
 
-	auditRuntimeEntrypoint = "/usr/local/bin/agbx-run"
-	auditProxyReadyTimeout = 10 * time.Second
-	auditProxyScriptOption = "-s"
-	auditProxySetOption    = "--set"
+	networkProxyRuntimeEntrypoint = "/usr/local/bin/agbx-run"
+	networkProxyReadyTimeout      = 10 * time.Second
+	networkProxyScriptOption      = "-s"
+	networkProxySetOption         = "--set"
 )
 
 type RunRequest struct {
 	Input              io.Reader
 	Output             io.Writer
-	NetworkAudit       *NetworkAudit
+	NetworkProxy       *NetworkProxy
 	Image              string
 	StateDirectory     string
 	User               string
@@ -66,7 +66,7 @@ type Mount struct {
 	ReadOnly bool
 }
 
-type NetworkAudit struct {
+type NetworkProxy struct {
 	CertificatePath     string
 	LogDirectory        string
 	NetworkName         string
@@ -81,14 +81,14 @@ func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 			return err
 		}
 	}
-	if request.NetworkAudit != nil {
-		defer removeNetworkAuditScripts(request.NetworkAudit)
+	if request.NetworkProxy != nil {
+		defer removeNetworkProxyScripts(request.NetworkProxy)
 
-		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
+		stopProxy, err := c.startNetworkProxy(ctx, request.NetworkProxy)
 		if err != nil {
 			return err
 		}
-		defer stopAudit()
+		defer stopProxy()
 	}
 
 	createdContainer, err := c.createContainer(ctx, request)
@@ -133,70 +133,70 @@ func (c *Client) pullImage(ctx context.Context, image string) error {
 	return nil
 }
 
-func (c *Client) startNetworkAudit(
+func (c *Client) startNetworkProxy(
 	ctx context.Context,
-	audit *NetworkAudit,
+	proxy *NetworkProxy,
 ) (func(), error) {
-	networkName, err := newAuditNetworkName()
+	networkName, err := newNetworkProxyName()
 	if err != nil {
 		return nil, err
 	}
-	audit.NetworkName = networkName
-	if err := c.ensureImage(ctx, auditProxyImage); err != nil {
+	proxy.NetworkName = networkName
+	if err := c.ensureImage(ctx, networkProxyImage); err != nil {
 		return nil, err
 	}
 	if _, err := c.api.NetworkCreate(ctx, networkName, mobyclient.NetworkCreateOptions{
 		Driver:   "bridge",
 		Internal: true,
-		Labels:   map[string]string{"app.agbx.network-audit": "true"},
+		Labels:   map[string]string{"app.agbx.network-proxy": "true"},
 	}); err != nil {
-		return nil, fmt.Errorf("create network audit network: %w", err)
+		return nil, fmt.Errorf("create network proxy network: %w", err)
 	}
 
-	proxy, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
-		Config:     auditProxyConfig(audit),
-		HostConfig: auditProxyHostConfig(audit),
+	proxyContainer, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
+		Config:     networkProxyConfig(proxy),
+		HostConfig: networkProxyHostConfig(proxy),
 	})
 	if err != nil {
-		c.removeNetworkAudit(audit, "")
+		c.removeNetworkProxy(proxy, "")
 
-		return nil, fmt.Errorf("create network audit proxy: %w", err)
+		return nil, fmt.Errorf("create network proxy: %w", err)
 	}
 	if _, err := c.api.NetworkConnect(ctx, networkName, mobyclient.NetworkConnectOptions{
-		Container: proxy.ID,
+		Container: proxyContainer.ID,
 		EndpointConfig: &network.EndpointSettings{
-			Aliases: []string{auditProxyAlias},
+			Aliases: []string{networkProxyAlias},
 		},
 	}); err != nil {
-		c.removeNetworkAudit(audit, proxy.ID)
+		c.removeNetworkProxy(proxy, proxyContainer.ID)
 
-		return nil, fmt.Errorf("connect network audit proxy: %w", err)
+		return nil, fmt.Errorf("connect network proxy: %w", err)
 	}
 	if _, err := c.api.ContainerStart(
 		ctx,
-		proxy.ID,
+		proxyContainer.ID,
 		mobyclient.ContainerStartOptions{},
 	); err != nil {
-		c.removeNetworkAudit(audit, proxy.ID)
+		c.removeNetworkProxy(proxy, proxyContainer.ID)
 
-		return nil, fmt.Errorf("start network audit proxy: %w", err)
+		return nil, fmt.Errorf("start network proxy: %w", err)
 	}
-	if err := c.waitForNetworkAuditProxy(ctx, proxy.ID); err != nil {
-		c.removeNetworkAudit(audit, proxy.ID)
+	if err := c.waitForNetworkProxy(ctx, proxyContainer.ID); err != nil {
+		c.removeNetworkProxy(proxy, proxyContainer.ID)
 
 		return nil, err
 	}
 
 	return func() {
-		c.removeNetworkAudit(audit, proxy.ID)
+		c.removeNetworkProxy(proxy, proxyContainer.ID)
 	}, nil
 }
 
-func auditProxyConfig(audit *NetworkAudit) *container.Config {
+func networkProxyConfig(proxy *NetworkProxy) *container.Config {
 	return &container.Config{
-		Cmd:        auditProxyCommand(audit),
-		Entrypoint: auditProxyEntrypointCommand(),
-		Image:      auditProxyImage,
+		Cmd:        networkProxyCommand(proxy),
+		Entrypoint: networkProxyEntrypointCommand(),
+		Image:      networkProxyImage,
 		Healthcheck: &container.HealthConfig{
 			Interval:      time.Second,
 			Retries:       3,
@@ -213,67 +213,67 @@ func auditProxyConfig(audit *NetworkAudit) *container.Config {
 	}
 }
 
-func auditProxyEntrypointCommand() []string {
+func networkProxyEntrypointCommand() []string {
 	script := `set -eu
-user_id="$(stat -c '%u' "` + auditProxyConfigDirectory + `")"
+user_id="$(stat -c '%u' "` + networkProxyConfigDirectory + `")"
 usermod -o -u "$user_id" mitmproxy >/dev/null
-exec env HOME="` + auditProxyHomeDirectory + `" gosu mitmproxy "$@"`
+exec env HOME="` + networkProxyHomeDirectory + `" gosu mitmproxy "$@"`
 
-	return []string{auditProxyEntrypoint, "-c", script, auditProxyEntrypointName}
+	return []string{networkProxyEntrypoint, "-c", script, networkProxyEntrypointName}
 }
 
-func auditProxyHostConfig(audit *NetworkAudit) *container.HostConfig {
-	// Audit state is owned by the host user, while the upstream image may not have its group.
+func networkProxyHostConfig(proxy *NetworkProxy) *container.HostConfig {
+	// Proxy state is owned by the host user, while the upstream image may not have its group.
 	return &container.HostConfig{
-		Mounts: auditProxyMounts(audit),
+		Mounts: networkProxyMounts(proxy),
 	}
 }
 
-func auditProxyCommand(audit *NetworkAudit) []string {
+func networkProxyCommand(proxy *NetworkProxy) []string {
 	command := []string{
 		"mitmdump",
-		auditProxySetOption, "confdir=" + auditProxyConfigDirectory,
-		auditProxySetOption, "flow_detail=0",
-		auditProxySetOption, "onboarding=false",
+		networkProxySetOption, "confdir=" + networkProxyConfigDirectory,
+		networkProxySetOption, "flow_detail=0",
+		networkProxySetOption, "onboarding=false",
 	}
-	if audit.LogDirectory != "" {
+	if proxy.LogDirectory != "" {
 		command = append(command,
-			auditProxySetOption, "hardump="+auditProxyLogDirectory+"/flows.har",
-			auditProxySetOption, "save_stream_file="+auditProxyLogDirectory+"/flows.mitm",
-			auditProxySetOption, "store_streamed_bodies=true",
+			networkProxySetOption, "hardump="+networkProxyLogDirectory+"/flows.har",
+			networkProxySetOption, "save_stream_file="+networkProxyLogDirectory+"/flows.mitm",
+			networkProxySetOption, "store_streamed_bodies=true",
 		)
 	}
-	if audit.PolicyScriptPath != "" {
+	if proxy.PolicyScriptPath != "" {
 		command = append(
 			command,
-			auditProxyScriptOption,
-			path.Join(auditProxyConfigDirectory, filepath.Base(audit.PolicyScriptPath)),
+			networkProxyScriptOption,
+			path.Join(networkProxyConfigDirectory, filepath.Base(proxy.PolicyScriptPath)),
 		)
 	}
-	if audit.RedactionScriptPath != "" {
-		command = append(command, auditProxyScriptOption, auditProxyRedactionScript)
+	if proxy.RedactionScriptPath != "" {
+		command = append(command, networkProxyScriptOption, networkProxyRedactionScript)
 	}
 
 	return command
 }
 
-func auditProxyMounts(audit *NetworkAudit) []mount.Mount {
-	mounts := []mount.Mount{bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false)}
-	if audit.LogDirectory != "" {
-		mounts = append(mounts, bindMount(audit.LogDirectory, auditProxyLogDirectory, false))
+func networkProxyMounts(proxy *NetworkProxy) []mount.Mount {
+	mounts := []mount.Mount{bindMount(proxy.ProxyConfigPath, networkProxyConfigDirectory, false)}
+	if proxy.LogDirectory != "" {
+		mounts = append(mounts, bindMount(proxy.LogDirectory, networkProxyLogDirectory, false))
 	}
-	if audit.RedactionScriptPath != "" {
+	if proxy.RedactionScriptPath != "" {
 		mounts = append(
 			mounts,
-			bindMount(audit.RedactionScriptPath, auditProxyRedactionScript, true),
+			bindMount(proxy.RedactionScriptPath, networkProxyRedactionScript, true),
 		)
 	}
 
 	return mounts
 }
 
-func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) error {
-	readyContext, cancel := context.WithTimeout(ctx, auditProxyReadyTimeout)
+func (c *Client) waitForNetworkProxy(ctx context.Context, proxyID string) error {
+	readyContext, cancel := context.WithTimeout(ctx, networkProxyReadyTimeout)
 	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -285,13 +285,13 @@ func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) e
 			mobyclient.ContainerInspectOptions{},
 		)
 		if err != nil {
-			return fmt.Errorf("inspect network audit proxy: %w", err)
+			return fmt.Errorf("inspect network proxy: %w", err)
 		}
 		if inspection.Container.State == nil {
-			return errors.New("inspect network audit proxy: container state is missing")
+			return errors.New("inspect network proxy: container state is missing")
 		}
 		if !inspection.Container.State.Running {
-			return c.auditProxyExitError(readyContext, proxyID, inspection.Container.State)
+			return c.networkProxyExitError(readyContext, proxyID, inspection.Container.State)
 		}
 		if inspection.Container.State.Health != nil {
 			switch inspection.Container.State.Health.Status {
@@ -300,28 +300,28 @@ func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) e
 			case container.NoHealthcheck, container.Starting:
 				// Continue waiting for Docker to run the health check.
 			case container.Unhealthy:
-				return errors.New("network audit proxy is unhealthy")
+				return errors.New("network proxy is unhealthy")
 			}
 		}
 
 		select {
 		case <-readyContext.Done():
-			return fmt.Errorf("wait for network audit proxy: %w", readyContext.Err())
+			return fmt.Errorf("wait for network proxy: %w", readyContext.Err())
 		case <-ticker.C:
 		}
 	}
 }
 
-func (c *Client) auditProxyExitError(
+func (c *Client) networkProxyExitError(
 	ctx context.Context,
 	proxyID string,
 	state *container.State,
 ) error {
-	message := fmt.Sprintf("network audit proxy exited with status %d", state.ExitCode)
+	message := fmt.Sprintf("network proxy exited with status %d", state.ExitCode)
 	if state.Error != "" {
 		message += ": " + state.Error
 	}
-	logs, err := c.auditProxyLogs(ctx, proxyID)
+	logs, err := c.networkProxyLogs(ctx, proxyID)
 	if err == nil && strings.TrimSpace(logs) != "" {
 		message += ": " + strings.TrimSpace(logs)
 	}
@@ -332,32 +332,32 @@ func (c *Client) auditProxyExitError(
 func (c *Client) ensureImage(ctx context.Context, image string) error {
 	hasImage, err := c.HasImage(ctx, image)
 	if err != nil {
-		return fmt.Errorf("check network audit proxy image: %w", err)
+		return fmt.Errorf("check network proxy image: %w", err)
 	}
 	if hasImage {
 		return nil
 	}
 	if err := c.pullImage(ctx, image); err != nil {
-		return fmt.Errorf("pull network audit proxy image: %w", err)
+		return fmt.Errorf("pull network proxy image: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Client) removeNetworkAudit(audit *NetworkAudit, proxyID string) {
+func (c *Client) removeNetworkProxy(proxy *NetworkProxy, proxyID string) {
 	ctx := context.Background()
 	if proxyID != "" {
 		_, _ = c.api.ContainerStop(ctx, proxyID, mobyclient.ContainerStopOptions{})
-		if audit.LogDirectory != "" {
-			c.writeAuditProxyLog(ctx, audit.LogDirectory, proxyID)
+		if proxy.LogDirectory != "" {
+			c.writeNetworkProxyLog(ctx, proxy.LogDirectory, proxyID)
 		}
 		_, _ = c.api.ContainerRemove(ctx, proxyID, mobyclient.ContainerRemoveOptions{Force: true})
 	}
-	_, _ = c.api.NetworkRemove(ctx, audit.NetworkName, mobyclient.NetworkRemoveOptions{})
+	_, _ = c.api.NetworkRemove(ctx, proxy.NetworkName, mobyclient.NetworkRemoveOptions{})
 }
 
-func removeNetworkAuditScripts(audit *NetworkAudit) {
-	for _, path := range []string{audit.PolicyScriptPath, audit.RedactionScriptPath} {
+func removeNetworkProxyScripts(proxy *NetworkProxy) {
+	for _, path := range []string{proxy.PolicyScriptPath, proxy.RedactionScriptPath} {
 		if path == "" {
 			continue
 		}
@@ -367,8 +367,8 @@ func removeNetworkAuditScripts(audit *NetworkAudit) {
 	}
 }
 
-func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxyID string) {
-	logs, err := c.auditProxyLogs(ctx, proxyID)
+func (c *Client) writeNetworkProxyLog(ctx context.Context, directory string, proxyID string) {
+	logs, err := c.networkProxyLogs(ctx, proxyID)
 	if err != nil {
 		return
 	}
@@ -385,7 +385,7 @@ func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxy
 	_, _ = file.WriteString(logs)
 }
 
-func (c *Client) auditProxyLogs(ctx context.Context, proxyID string) (string, error) {
+func (c *Client) networkProxyLogs(ctx context.Context, proxyID string) (string, error) {
 	logs, err := c.api.ContainerLogs(ctx, proxyID, mobyclient.ContainerLogsOptions{
 		ShowStderr: true,
 		ShowStdout: true,
@@ -405,13 +405,13 @@ func (c *Client) auditProxyLogs(ctx context.Context, proxyID string) (string, er
 	return output.String(), nil
 }
 
-func newAuditNetworkName() (string, error) {
+func newNetworkProxyName() (string, error) {
 	identifier := make([]byte, 8)
 	if _, err := rand.Read(identifier); err != nil {
-		return "", fmt.Errorf("generate network audit identifier: %w", err)
+		return "", fmt.Errorf("generate network proxy identifier: %w", err)
 	}
 
-	return "agbx-audit-" + hex.EncodeToString(identifier), nil
+	return "agbx-proxy-" + hex.EncodeToString(identifier), nil
 }
 
 func (c *Client) createContainer(
@@ -448,8 +448,8 @@ func containerHostConfig(request RunRequest) *container.HostConfig {
 		NetworkMode: containerNetworkMode(request),
 		SecurityOpt: []string{noNewPrivileges},
 	}
-	if request.NetworkAudit != nil {
-		// The audit runtime starts as root to install the proxy CA, then lowers privileges.
+	if request.NetworkProxy != nil {
+		// The proxy runtime starts as root to install the proxy CA, then lowers privileges.
 		return hostConfig
 	}
 	hostConfig.CapDrop = []string{allCapabilities}
@@ -458,29 +458,29 @@ func containerHostConfig(request RunRequest) *container.HostConfig {
 }
 
 func containerCommand(request RunRequest) []string {
-	if request.NetworkAudit == nil {
+	if request.NetworkProxy == nil {
 		return request.Command
 	}
 
 	command := make([]string, 0, len(request.Command)+2)
-	command = append(command, auditRuntimeEntrypoint, request.User)
+	command = append(command, networkProxyRuntimeEntrypoint, request.User)
 
 	return append(command, request.Command...)
 }
 
 func containerEnvironment(request RunRequest) []string {
 	environment := []string{"HOME=" + homeDirectory}
-	if request.NetworkAudit == nil {
+	if request.NetworkProxy == nil {
 		return environment
 	}
 
-	proxyURL := "http://" + auditProxyAlias + ":8080"
+	proxyURL := "http://" + networkProxyAlias + ":8080"
 	return append(environment,
-		"AGBX_PROXY_CA_CERTIFICATE="+auditCertificateTarget,
+		"AGBX_PROXY_CA_CERTIFICATE="+networkProxyCertificateTarget,
 		"ALL_PROXY="+proxyURL,
 		"HTTP_PROXY="+proxyURL,
 		"HTTPS_PROXY="+proxyURL,
-		"NODE_EXTRA_CA_CERTS="+auditCertificateTarget,
+		"NODE_EXTRA_CA_CERTS="+networkProxyCertificateTarget,
 		"NODE_USE_ENV_PROXY=1",
 		"NO_PROXY=localhost,127.0.0.1,::1",
 		"all_proxy="+proxyURL,
@@ -491,8 +491,8 @@ func containerEnvironment(request RunRequest) []string {
 }
 
 func containerUser(request RunRequest) string {
-	if request.NetworkAudit != nil {
-		// The audit runtime requires root to trust the proxy CA before dropping privileges.
+	if request.NetworkProxy != nil {
+		// The proxy runtime requires root to trust the proxy CA before dropping privileges.
 		return rootUser
 	}
 
@@ -500,20 +500,20 @@ func containerUser(request RunRequest) string {
 }
 
 func containerNetworkMode(request RunRequest) container.NetworkMode {
-	if request.NetworkAudit == nil {
+	if request.NetworkProxy == nil {
 		return ""
 	}
 
-	return container.NetworkMode(request.NetworkAudit.NetworkName)
+	return container.NetworkMode(request.NetworkProxy.NetworkName)
 }
 
 func containerNetworkingConfig(request RunRequest) *network.NetworkingConfig {
-	if request.NetworkAudit == nil {
+	if request.NetworkProxy == nil {
 		return nil
 	}
 
 	return &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
-		request.NetworkAudit.NetworkName: {},
+		request.NetworkProxy.NetworkName: {},
 	}}
 }
 
@@ -534,10 +534,10 @@ func containerMounts(request RunRequest) []mount.Mount {
 			),
 		)
 	}
-	if request.NetworkAudit != nil {
+	if request.NetworkProxy != nil {
 		mounts = append(
 			mounts,
-			bindMount(request.NetworkAudit.CertificatePath, auditCertificateTarget, true),
+			bindMount(request.NetworkProxy.CertificatePath, networkProxyCertificateTarget, true),
 		)
 	}
 

@@ -180,7 +180,7 @@ func TestProviderCommandPassesConfiguredMounts(t *testing.T) {
 	}, dockerClient.request.Mounts)
 }
 
-func TestProviderCommandConfiguresNetworkAudit(t *testing.T) {
+func TestProviderCommandConfiguresNetworkProxyForAudit(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -198,11 +198,11 @@ func TestProviderCommandConfiguresNetworkAudit(t *testing.T) {
 	}, testProvider{})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	require.NotNil(t, dockerClient.request.NetworkAudit)
+	require.NotNil(t, dockerClient.request.NetworkProxy)
 	assert.Equal(
 		t,
 		filepath.Join(directory, auditLogDirectory),
-		filepath.Dir(dockerClient.request.NetworkAudit.LogDirectory),
+		filepath.Dir(dockerClient.request.NetworkProxy.LogDirectory),
 	)
 }
 
@@ -225,9 +225,9 @@ func TestProviderCommandConfiguresNetworkPolicy(t *testing.T) {
 	}, testProvider{})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	require.NotNil(t, dockerClient.request.NetworkAudit)
-	assert.Empty(t, dockerClient.request.NetworkAudit.LogDirectory)
-	assert.NotEmpty(t, dockerClient.request.NetworkAudit.PolicyScriptPath)
+	require.NotNil(t, dockerClient.request.NetworkProxy)
+	assert.Empty(t, dockerClient.request.NetworkProxy.LogDirectory)
+	assert.NotEmpty(t, dockerClient.request.NetworkProxy.PolicyScriptPath)
 }
 
 func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {

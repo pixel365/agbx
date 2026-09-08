@@ -185,7 +185,8 @@ provider name, for example `agbx --config /path/to/.agbx.yaml claude`.
 `network.policy` controls HTTP(S) and WebSocket egress through the isolated
 network proxy. A policy requires an explicit default action. Rules are exact
 hostnames or `*.` subdomain patterns; ports other than `80` and `443` are
-always denied. `deny` wins over `allow` at both configuration levels.
+always denied. Literal IP destinations are also denied whenever a policy is
+active. `deny` wins over `allow` at both configuration levels.
 
 ```yaml
 network:
