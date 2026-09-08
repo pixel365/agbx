@@ -45,20 +45,20 @@ From the root of the project you want an agent to work on:
 ```sh
 agbx init
 agbx check
-agbx prepare claude
 agbx claude
 ```
 
-Replace `claude` with `codex` to prepare and start Codex instead.
+Replace `claude` with `codex` to start Codex instead.
 
 `init` opens an interactive wizard that creates `.agbx.yaml`. It can select a
 local Docker image, search Docker Hub, or accept an image reference manually.
 For non-`latest` Docker Hub tags, the wizard resolves and stores the image
 digest when possible.
 
-`prepare` builds a provider image from the configured base image. It is cached
-locally and only needs to be run again when the base image or provider setup
-changes. Use `agbx prepare <provider> --force` to rebuild it explicitly.
+The first provider launch builds its image from the configured base image. It
+is cached locally; changing the base-image configuration or provider setup
+creates a new prepared image automatically. Use `agbx prepare <provider>` to
+prebuild it, or add `--force` to rebuild it explicitly.
 
 The provider command starts its prepared image interactively. The current
 directory is mounted read-write at a stable, configuration-specific path below
@@ -205,11 +205,11 @@ request has been sent, before the flow is persisted in `flows.mitm` and
 Normal proxy flow output is disabled, so `proxy.log` is limited to proxy
 diagnostics.
 
-The first audited run pulls the pinned `mitmproxy` image. The prepared provider
-image must include the current agbx runtime, so run `agbx prepare <provider>`
-again after upgrading agbx before enabling this option. Requests that do not
-support standard HTTP proxy environment variables cannot bypass the audit: they
-will fail because the agent container has no direct network route.
+The first audited run pulls the pinned `mitmproxy` image. It also prepares a
+new provider image automatically when the current agbx runtime requires one.
+Requests that do not support standard HTTP proxy environment variables cannot
+bypass the audit: they will fail because the agent container has no direct
+network route.
 
 ## Commands
 
@@ -217,8 +217,8 @@ will fail because the agent container has no direct network route.
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
 | `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
-| `agbx prepare <provider>`            | Build the prepared image for a provider.                         |
-| `agbx <provider> [arguments...]`     | Run a prepared provider in the configured container.             |
+| `agbx prepare <provider>`            | Prebuild or rebuild a provider image.                            |
+| `agbx <provider> [arguments...]`     | Start a provider, preparing its image when needed.                |
 | `agbx version [-v]`                  | Print version metadata.                                          |
 
 Run `agbx <command> --help` for command-specific options.

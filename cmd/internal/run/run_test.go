@@ -2,6 +2,8 @@ package run
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,12 +19,16 @@ import (
 
 const (
 	auditLogDirectory       = "network-audit"
+	exampleImageDigest      = "sha256:abc"
+	exampleImageName        = "example/image"
+	exampleImageTag         = "1.0"
 	providerName            = "claude"
 	sharedInstructionFile   = "AGENTS.md"
 	sharedInstructionTarget = config.AdditionalMountDirectory + "/" + sharedInstructionFile
 	instructionFile         = "CLAUDE.md"
 	instructionMountTarget  = config.AdditionalMountDirectory + "/" + instructionFile
-	validConfig             = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
+	validConfig             = "version: 1\nimage:\n  name: " + exampleImageName + "\n  tag: " +
+		exampleImageTag + "\n  digest: " + exampleImageDigest + "\n"
 )
 
 func TestProviderCommandRunsConfiguredImage(t *testing.T) {
@@ -45,9 +51,9 @@ func TestProviderCommandRunsConfiguredImage(t *testing.T) {
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	assert.Equal(t, []string{providerName, "--help"}, dockerClient.request.Command)
 	expectedImage := config.Image{
-		Name:   "example/image",
-		Tag:    "1.0",
-		Digest: "sha256:abc",
+		Name:   exampleImageName,
+		Tag:    exampleImageTag,
+		Digest: exampleImageDigest,
 	}
 	expectedRecipe := provider.BuildRecipe{Dockerfile: "FROM " + expectedImage.Reference()}
 	assert.Equal(
@@ -73,7 +79,7 @@ func TestProviderCommandRunsConfiguredImage(t *testing.T) {
 	assert.True(t, dockerClient.closed)
 }
 
-func TestProviderCommandRejectsUnpreparedProvider(t *testing.T) {
+func TestProviderCommandPreparesMissingImage(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -88,18 +94,48 @@ func TestProviderCommandRejectsUnpreparedProvider(t *testing.T) {
 	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
 	}, testProvider{})
+	cmd.SetOut(io.Discard)
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	expectedImage := config.Image{
+		Name:   exampleImageName,
+		Tag:    exampleImageTag,
+		Digest: exampleImageDigest,
+	}
+	expectedRecipe := provider.BuildRecipe{Dockerfile: "FROM " + expectedImage.Reference()}
+	assert.Equal(t, expectedRecipe.Dockerfile, dockerClient.buildRequest.Dockerfile)
+	assert.Equal(t, expectedRecipe.BuildArgs, dockerClient.buildRequest.BuildArgs)
+	assert.Equal(
+		t,
+		expectedRecipe.PreparedImageReference(providerName, expectedImage),
+		dockerClient.buildRequest.Tag,
+	)
+	assert.NotNil(t, dockerClient.buildRequest.Output)
+	assert.Equal(t, dockerClient.buildRequest.Tag, dockerClient.request.Image)
+	assert.True(t, dockerClient.closed)
+}
+
+func TestProviderCommandReturnsBuildError(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	t.Setenv(dataHomeEnvironmentVariable, t.TempDir())
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	buildErr := errors.New("build failed")
+	dockerClient := &recordingDockerClient{buildErr: buildErr}
+	cmd := NewProviderCommand(func() (DockerClient, error) {
+		return dockerClient, nil
+	}, testProvider{})
 
 	err := cmd.ExecuteContext(t.Context())
 
-	require.EqualError(
-		t,
-		err,
-		"provider \"claude\" is not prepared; run \"agbx prepare claude\"",
-	)
+	require.ErrorIs(t, err, buildErr)
+	require.ErrorContains(t, err, "build provider \"claude\"")
 	assert.Empty(t, dockerClient.request)
 	assert.True(t, dockerClient.closed)
-	_, statErr := os.Stat(filepath.Join(stateHome, "agbx", "providers", providerName))
-	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func TestProviderCommandPassesConfiguredMounts(t *testing.T) {
@@ -206,13 +242,21 @@ func TestProviderStateDirectoryRejectsPath(t *testing.T) {
 }
 
 type recordingDockerClient struct {
-	request  docker.RunRequest
-	hasImage bool
-	closed   bool
+	buildErr     error
+	buildRequest docker.BuildRequest
+	request      docker.RunRequest
+	hasImage     bool
+	closed       bool
 }
 
 func (c *recordingDockerClient) HasImage(_ context.Context, _ string) (bool, error) {
 	return c.hasImage, nil
+}
+
+func (c *recordingDockerClient) Build(_ context.Context, request docker.BuildRequest) error {
+	c.buildRequest = request
+
+	return c.buildErr
 }
 
 type testProvider struct{}

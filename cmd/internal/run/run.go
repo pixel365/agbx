@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 )
 
 type DockerClient interface {
+	Build(context.Context, docker.BuildRequest) error
 	Run(context.Context, docker.RunRequest) error
 	Close() error
 	HasImage(context.Context, string) (bool, error)
@@ -82,16 +84,15 @@ func runProvider(
 		_ = dockerClient.Close()
 	}()
 
-	hasImage, err := dockerClient.HasImage(cmd.Context(), imageReference)
-	if err != nil {
-		return fmt.Errorf("check prepared image %q: %w", imageReference, err)
-	}
-	if !hasImage {
-		return fmt.Errorf(
-			"provider %q is not prepared; run %q",
-			selectedProvider.Name(),
-			"agbx prepare "+selectedProvider.Name(),
-		)
+	if err := ensureProviderImage(
+		cmd.Context(),
+		dockerClient,
+		recipe,
+		imageReference,
+		selectedProvider.Name(),
+		cmd.OutOrStdout(),
+	); err != nil {
+		return err
 	}
 
 	workingDirectory, err := os.Getwd()
@@ -128,6 +129,34 @@ func runProvider(
 		WorkingDirectory:   workingDirectory,
 		WorkspaceDirectory: containerWorkspaceDirectory,
 	})
+}
+
+func ensureProviderImage(
+	ctx context.Context,
+	dockerClient DockerClient,
+	recipe provider.BuildRecipe,
+	imageReference string,
+	providerName string,
+	output io.Writer,
+) error {
+	hasImage, err := dockerClient.HasImage(ctx, imageReference)
+	if err != nil {
+		return fmt.Errorf("check prepared image %q: %w", imageReference, err)
+	}
+	if hasImage {
+		return nil
+	}
+	if err := dockerClient.Build(ctx, docker.BuildRequest{
+		Dockerfile: recipe.Dockerfile,
+		BuildArgs:  recipe.BuildArgs,
+		Output:     output,
+		Tag:        imageReference,
+	}); err != nil {
+		return fmt.Errorf("build provider %q: %w", providerName, err)
+	}
+	_, err = fmt.Fprintf(output, "Prepared provider image: %s\n", imageReference)
+
+	return err
 }
 
 func networkAuditConfiguration(configuration config.Config) (*docker.NetworkAudit, error) {
