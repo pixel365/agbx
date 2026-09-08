@@ -25,7 +25,7 @@ const (
 	validConfig             = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
 )
 
-func TestRunCommandRunsConfiguredImage(t *testing.T) {
+func TestProviderCommandRunsConfiguredImage(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -37,12 +37,10 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	)
 
 	dockerClient := &recordingDockerClient{hasImage: true}
-	providers := provider.NewRegistry()
-	require.NoError(t, providers.Register(testProvider{}))
-	cmd := NewRunCommand(func() (DockerClient, error) {
+	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
-	}, providers)
-	cmd.SetArgs([]string{providerName, "--", "--help"})
+	}, testProvider{})
+	cmd.SetArgs([]string{"--", "--help"})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	assert.Equal(t, []string{providerName, "--help"}, dockerClient.request.Command)
@@ -75,7 +73,7 @@ func TestRunCommandRunsConfiguredImage(t *testing.T) {
 	assert.True(t, dockerClient.closed)
 }
 
-func TestRunCommandRejectsUnpreparedProvider(t *testing.T) {
+func TestProviderCommandRejectsUnpreparedProvider(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -87,12 +85,9 @@ func TestRunCommandRejectsUnpreparedProvider(t *testing.T) {
 	)
 
 	dockerClient := &recordingDockerClient{}
-	providers := provider.NewRegistry()
-	require.NoError(t, providers.Register(testProvider{}))
-	cmd := NewRunCommand(func() (DockerClient, error) {
+	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
-	}, providers)
-	cmd.SetArgs([]string{providerName})
+	}, testProvider{})
 
 	err := cmd.ExecuteContext(t.Context())
 
@@ -107,7 +102,7 @@ func TestRunCommandRejectsUnpreparedProvider(t *testing.T) {
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
-func TestRunCommandPassesConfiguredMounts(t *testing.T) {
+func TestProviderCommandPassesConfiguredMounts(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -126,12 +121,9 @@ func TestRunCommandPassesConfiguredMounts(t *testing.T) {
 	)
 
 	dockerClient := &recordingDockerClient{hasImage: true}
-	providers := provider.NewRegistry()
-	require.NoError(t, providers.Register(testProvider{}))
-	cmd := NewRunCommand(func() (DockerClient, error) {
+	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
-	}, providers)
-	cmd.SetArgs([]string{providerName})
+	}, testProvider{})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	assert.Equal(t, []docker.Mount{
@@ -148,7 +140,7 @@ func TestRunCommandPassesConfiguredMounts(t *testing.T) {
 	}, dockerClient.request.Mounts)
 }
 
-func TestRunCommandConfiguresNetworkAudit(t *testing.T) {
+func TestProviderCommandConfiguresNetworkAudit(t *testing.T) {
 	directory := t.TempDir()
 	stateHome := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -161,12 +153,9 @@ func TestRunCommandConfiguresNetworkAudit(t *testing.T) {
 	)
 
 	dockerClient := &recordingDockerClient{hasImage: true}
-	providers := provider.NewRegistry()
-	require.NoError(t, providers.Register(testProvider{}))
-	cmd := NewRunCommand(func() (DockerClient, error) {
+	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
-	}, providers)
-	cmd.SetArgs([]string{providerName})
+	}, testProvider{})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	require.NotNil(t, dockerClient.request.NetworkAudit)

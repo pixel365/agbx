@@ -46,10 +46,10 @@ From the root of the project you want an agent to work on:
 agbx init
 agbx check
 agbx prepare claude
-agbx run claude
+agbx claude
 ```
 
-Replace `claude` with `codex` to prepare and run Codex instead.
+Replace `claude` with `codex` to prepare and start Codex instead.
 
 `init` opens an interactive wizard that creates `.agbx.yaml`. It can select a
 local Docker image, search Docker Hub, or accept an image reference manually.
@@ -60,8 +60,8 @@ digest when possible.
 locally and only needs to be run again when the base image or provider setup
 changes. Use `agbx prepare <provider> --force` to rebuild it explicitly.
 
-`run` starts the prepared provider image interactively. The current directory
-is mounted read-write at a stable, configuration-specific path below
+The provider command starts its prepared image interactively. The current
+directory is mounted read-write at a stable, configuration-specific path below
 `/workspace`; provider authentication state is shared between projects under
 `${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
 
@@ -153,10 +153,10 @@ For Codex, `/agbx` is passed through `--add-dir`, and Codex runs with its
 directory alongside the main workspace; Docker still enforces the configured
 read-only mount permissions.
 
-On the first `agbx run codex`, Codex uses device authentication: open the
+On the first `agbx codex`, Codex uses device authentication: open the
 displayed link on the host and enter its one-time code. This avoids the browser
 redirect callback being sent into the container. Explicit `login` and `logout`
-commands remain available through `agbx run codex -- <command>`.
+commands remain available through `agbx codex -- <command>`.
 
 `read_only` defaults to `true`. Mount targets must be absolute paths within
 `/agbx`; overlapping targets are rejected.
@@ -218,7 +218,7 @@ will fail because the agent container has no direct network route.
 | `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
 | `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
 | `agbx prepare <provider>`            | Build the prepared image for a provider.                         |
-| `agbx run <provider> [arguments...]` | Run a prepared provider in the configured container.             |
+| `agbx <provider> [arguments...]`     | Run a prepared provider in the configured container.             |
 | `agbx version [-v]`                  | Print version metadata.                                          |
 
 Run `agbx <command> --help` for command-specific options.

@@ -35,7 +35,7 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 	providers := mustProviderRegistry()
 
 	cmd := &cobra.Command{
-		Use: "agbx [command]",
+		Use: "agbx",
 	}
 
 	cmd.PersistentFlags().StringVar(
@@ -46,7 +46,10 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 	)
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		switch cmd.Name() {
-		case "init", "check", "run":
+		case "init", "check":
+			return nil
+		}
+		if _, err := providers.Lookup(cmd.Name()); err == nil {
 			return nil
 		}
 
@@ -67,10 +70,12 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 		check.NewCheckCommand(func() (check.DockerClient, error) {
 			return newDockerClient()
 		}, providers),
-		run.NewRunCommand(func() (run.DockerClient, error) {
-			return newDockerClient()
-		}, providers),
 	)
+	for _, registeredProvider := range providers.All() {
+		cmd.AddCommand(run.NewProviderCommand(func() (run.DockerClient, error) {
+			return newDockerClient()
+		}, registeredProvider))
+	}
 
 	return cmd
 }

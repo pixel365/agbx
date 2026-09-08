@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -33,13 +32,16 @@ const (
 	workspaceDirectory          = "/workspace"
 )
 
-func NewRunCommand(newDockerClient DockerClientFunc, providers *provider.Registry) *cobra.Command {
+func NewProviderCommand(
+	newDockerClient DockerClientFunc,
+	selectedProvider provider.Provider,
+) *cobra.Command {
 	return &cobra.Command{
-		Use:   "run <provider> [arguments...]",
+		Use:   selectedProvider.Name() + " [arguments...]",
 		Short: "Run a provider in the configured container",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProvider(cmd, args, newDockerClient, providers)
+			return runProvider(cmd, args, newDockerClient, selectedProvider)
 		},
 	}
 }
@@ -48,17 +50,8 @@ func runProvider(
 	cmd *cobra.Command,
 	args []string,
 	newDockerClient DockerClientFunc,
-	providers *provider.Registry,
+	selectedProvider provider.Provider,
 ) error {
-	selectedProvider, err := providers.Lookup(args[0])
-	if err != nil {
-		if errors.Is(err, provider.ErrNotFound) {
-			return fmt.Errorf("provider %q is not supported", args[0])
-		}
-
-		return err
-	}
-
 	loadedConfig, err := commandconfig.LoadWithPath(cmd)
 	if err != nil {
 		return err
@@ -66,19 +59,19 @@ func runProvider(
 	configuration := loadedConfig.Configuration
 	mounts, err := configuration.MountsForProvider(selectedProvider.Name())
 	if err != nil {
-		return fmt.Errorf("get mounts for provider %q: %w", args[0], err)
+		return fmt.Errorf("get mounts for provider %q: %w", selectedProvider.Name(), err)
 	}
 	recipe, err := provider.BuildRecipeFor(selectedProvider, configuration)
 	if err != nil {
-		return fmt.Errorf("create build recipe for provider %q: %w", args[0], err)
+		return fmt.Errorf("create build recipe for provider %q: %w", selectedProvider.Name(), err)
 	}
 	imageReference := recipe.PreparedImageReference(
 		selectedProvider.Name(),
 		configuration.Image,
 	)
-	command, err := selectedProvider.Command(args[1:], mounts)
+	command, err := selectedProvider.Command(args, mounts)
 	if err != nil {
-		return fmt.Errorf("create command for provider %q: %w", args[0], err)
+		return fmt.Errorf("create command for provider %q: %w", selectedProvider.Name(), err)
 	}
 
 	dockerClient, err := newDockerClient()
@@ -96,8 +89,8 @@ func runProvider(
 	if !hasImage {
 		return fmt.Errorf(
 			"provider %q is not prepared; run %q",
-			args[0],
-			"agbx prepare "+args[0],
+			selectedProvider.Name(),
+			"agbx prepare "+selectedProvider.Name(),
 		)
 	}
 

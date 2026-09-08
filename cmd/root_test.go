@@ -102,6 +102,21 @@ func TestRootCommandChecksExplicitConfigFile(t *testing.T) {
 	assert.Equal(t, "Configuration is valid.\nDocker daemon is available.\n", out.String())
 }
 
+func TestRootCommandRunsProviderAtTopLevel(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(validConfig), 0o600),
+	)
+
+	cmd := newRootCommand(availableDockerClientFactory)
+	cmd.SetArgs([]string{claude.New().Name()})
+
+	require.NoError(t, cmd.Execute())
+}
+
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 
