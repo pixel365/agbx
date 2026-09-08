@@ -86,6 +86,10 @@ func TestContainerHostConfigKeepsCapabilitiesForAuditBootstrap(t *testing.T) {
 	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
 }
 
+func TestContainerUserUsesRootForAuditBootstrap(t *testing.T) {
+	assert.Equal(t, rootUser, containerUser(RunRequest{NetworkAudit: &NetworkAudit{}}))
+}
+
 func TestAuditProxyHostConfigPreventsNewPrivileges(t *testing.T) {
 	hostConfig := auditProxyHostConfig(&NetworkAudit{})
 
@@ -117,7 +121,7 @@ func TestContainerEnvironmentUsesAuditProxy(t *testing.T) {
 		"AGBX_PROXY_CA_CERTIFICATE="+auditCertificateTarget,
 	)
 	assert.Contains(t, containerEnvironment(request), "NODE_USE_ENV_PROXY=1")
-	assert.Empty(t, containerUser(request))
+	assert.Equal(t, rootUser, containerUser(request))
 }
 
 func TestAuditProxyUsesRedactionScript(t *testing.T) {

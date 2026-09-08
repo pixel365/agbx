@@ -29,6 +29,7 @@ const (
 	auditProxyRedactionScript = "/agbx/redact.py"
 	allCapabilities           = "ALL"
 	noNewPrivileges           = "no-new-privileges=true"
+	rootUser                  = "0:0"
 
 	//nolint:nolintlint
 	auditProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
@@ -428,7 +429,8 @@ func containerEnvironment(request RunRequest) []string {
 
 func containerUser(request RunRequest) string {
 	if request.NetworkAudit != nil {
-		return ""
+		// The audit runtime requires root to trust the proxy CA before dropping privileges.
+		return rootUser
 	}
 
 	return request.User
