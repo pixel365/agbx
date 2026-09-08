@@ -24,11 +24,14 @@ import (
 const (
 	defaultWorkspaceDirectory = "/workspace"
 	homeDirectory             = "/home/agbx"
+	auditProxyHomeDirectory   = "/home/mitmproxy"
 	auditCertificateTarget    = "/agbx/network-audit-ca.crt"
 	auditProxyAlias           = "agbx-network-audit"
 	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
 	auditProxyLogDirectory    = "/logs"
 	auditProxyRedactionScript = "/agbx/redact.py"
+	auditProxyEntrypoint      = "bash"
+	auditProxyEntrypointName  = "agbx-audit-proxy"
 	allCapabilities           = "ALL"
 	noNewPrivileges           = "no-new-privileges=true"
 	rootUser                  = "0:0"
@@ -189,8 +192,9 @@ func (c *Client) startNetworkAudit(
 
 func auditProxyConfig(audit *NetworkAudit) *container.Config {
 	return &container.Config{
-		Cmd:   auditProxyCommand(audit),
-		Image: auditProxyImage,
+		Cmd:        auditProxyCommand(audit),
+		Entrypoint: auditProxyEntrypointCommand(),
+		Image:      auditProxyImage,
 		Healthcheck: &container.HealthConfig{
 			Interval:      time.Second,
 			Retries:       3,
@@ -207,8 +211,17 @@ func auditProxyConfig(audit *NetworkAudit) *container.Config {
 	}
 }
 
+func auditProxyEntrypointCommand() []string {
+	script := `set -eu
+user_id="$(stat -c '%u' "` + auditProxyConfigDirectory + `")"
+usermod -o -u "$user_id" mitmproxy >/dev/null
+exec env HOME="` + auditProxyHomeDirectory + `" gosu mitmproxy "$@"`
+
+	return []string{auditProxyEntrypoint, "-c", script, auditProxyEntrypointName}
+}
+
 func auditProxyHostConfig(audit *NetworkAudit) *container.HostConfig {
-	// The official entrypoint maps bind-mount ownership before dropping privileges.
+	// Audit state is owned by the host user, while the upstream image may not have its group.
 	return &container.HostConfig{
 		Mounts: auditProxyMounts(audit),
 	}

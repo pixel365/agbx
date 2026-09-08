@@ -90,6 +90,15 @@ func TestContainerUserUsesRootForAuditBootstrap(t *testing.T) {
 	assert.Equal(t, rootUser, containerUser(RunRequest{NetworkAudit: &NetworkAudit{}}))
 }
 
+func TestAuditProxyEntrypointMapsMountOwner(t *testing.T) {
+	entrypoint := auditProxyEntrypointCommand()
+
+	assert.Equal(t, auditProxyEntrypoint, entrypoint[0])
+	assert.Equal(t, auditProxyEntrypointName, entrypoint[3])
+	assert.Contains(t, entrypoint[2], `usermod -o -u "$user_id" mitmproxy`)
+	assert.Contains(t, entrypoint[2], `HOME="`+auditProxyHomeDirectory+`" gosu mitmproxy`)
+}
+
 func TestContainerCommandUsesAuditEntrypoint(t *testing.T) {
 	request := RunRequest{
 		Command:      []string{"provider", "--help"},
