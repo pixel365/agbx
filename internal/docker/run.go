@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -22,6 +24,7 @@ import (
 const (
 	defaultWorkspaceDirectory = "/workspace"
 	homeDirectory             = "/home/agbx"
+	auditProxyHomeDirectory   = "/home/mitmproxy"
 	auditCertificateTarget    = "/agbx/network-audit-ca.crt"
 	auditProxyAlias           = "agbx-network-audit"
 	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
@@ -77,7 +80,7 @@ func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 	if request.NetworkAudit != nil {
 		defer removeAuditRedactionScript(request.NetworkAudit.RedactionScriptPath)
 
-		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
+		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit, request.User)
 		if err != nil {
 			return err
 		}
@@ -129,6 +132,7 @@ func (c *Client) pullImage(ctx context.Context, image string) error {
 func (c *Client) startNetworkAudit(
 	ctx context.Context,
 	audit *NetworkAudit,
+	user string,
 ) (func(), error) {
 	networkName, err := newAuditNetworkName()
 	if err != nil {
@@ -147,23 +151,7 @@ func (c *Client) startNetworkAudit(
 	}
 
 	proxy, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
-		Config: &container.Config{
-			Cmd:   auditProxyCommand(audit),
-			Image: auditProxyImage,
-			Healthcheck: &container.HealthConfig{
-				Interval:      time.Second,
-				Retries:       3,
-				StartInterval: 100 * time.Millisecond,
-				StartPeriod:   5 * time.Second,
-				Test: []string{
-					"CMD",
-					"python3",
-					"-c",
-					"import socket; socket.create_connection(('127.0.0.1', 8080), 1).close()",
-				},
-				Timeout: time.Second,
-			},
-		},
+		Config:     auditProxyConfig(audit, user),
 		HostConfig: auditProxyHostConfig(audit),
 	})
 	if err != nil {
@@ -201,10 +189,35 @@ func (c *Client) startNetworkAudit(
 	}, nil
 }
 
+func auditProxyConfig(audit *NetworkAudit, user string) *container.Config {
+	return &container.Config{
+		Cmd: auditProxyCommand(audit),
+		// The image entrypoint changes users through gosu, which needs privileges
+		// unavailable under no-new-privileges. The configured confdir makes it unnecessary.
+		Entrypoint: []string{""},
+		Env:        []string{"HOME=" + auditProxyHomeDirectory},
+		Image:      auditProxyImage,
+		User:       user,
+		Healthcheck: &container.HealthConfig{
+			Interval:      time.Second,
+			Retries:       3,
+			StartInterval: 100 * time.Millisecond,
+			StartPeriod:   5 * time.Second,
+			Test: []string{
+				"CMD",
+				"python3",
+				"-c",
+				"import socket; socket.create_connection(('127.0.0.1', 8080), 1).close()",
+			},
+			Timeout: time.Second,
+		},
+	}
+}
+
 func auditProxyHostConfig(audit *NetworkAudit) *container.HostConfig {
 	return &container.HostConfig{
 		Mounts: auditProxyMounts(audit),
-		// The proxy entrypoint lowers its privileges after startup.
+		// The proxy runs as the configured user and cannot gain new privileges.
 		SecurityOpt: []string{noNewPrivileges},
 	}
 }
@@ -260,10 +273,7 @@ func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) e
 			return errors.New("inspect network audit proxy: container state is missing")
 		}
 		if !inspection.Container.State.Running {
-			return fmt.Errorf(
-				"network audit proxy exited: %s",
-				inspection.Container.State.Error,
-			)
+			return c.auditProxyExitError(readyContext, proxyID, inspection.Container.State)
 		}
 		if inspection.Container.State.Health != nil {
 			switch inspection.Container.State.Health.Status {
@@ -282,6 +292,23 @@ func (c *Client) waitForNetworkAuditProxy(ctx context.Context, proxyID string) e
 		case <-ticker.C:
 		}
 	}
+}
+
+func (c *Client) auditProxyExitError(
+	ctx context.Context,
+	proxyID string,
+	state *container.State,
+) error {
+	message := fmt.Sprintf("network audit proxy exited with status %d", state.ExitCode)
+	if state.Error != "" {
+		message += ": " + state.Error
+	}
+	logs, err := c.auditProxyLogs(ctx, proxyID)
+	if err == nil && strings.TrimSpace(logs) != "" {
+		message += ": " + strings.TrimSpace(logs)
+	}
+
+	return errors.New(message)
 }
 
 func (c *Client) ensureImage(ctx context.Context, image string) error {
@@ -319,16 +346,10 @@ func removeAuditRedactionScript(path string) {
 }
 
 func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxyID string) {
-	logs, err := c.api.ContainerLogs(ctx, proxyID, mobyclient.ContainerLogsOptions{
-		ShowStderr: true,
-		ShowStdout: true,
-	})
+	logs, err := c.auditProxyLogs(ctx, proxyID)
 	if err != nil {
 		return
 	}
-	defer func() {
-		_ = logs.Close()
-	}()
 
 	filePath := filepath.Join(directory, "proxy.log")
 	// #nosec G304 -- The log directory is explicitly selected in the audit configuration.
@@ -339,7 +360,27 @@ func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxy
 	defer func() {
 		_ = file.Close()
 	}()
-	_, _ = stdcopy.StdCopy(file, file, logs)
+	_, _ = file.WriteString(logs)
+}
+
+func (c *Client) auditProxyLogs(ctx context.Context, proxyID string) (string, error) {
+	logs, err := c.api.ContainerLogs(ctx, proxyID, mobyclient.ContainerLogsOptions{
+		ShowStderr: true,
+		ShowStdout: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = logs.Close()
+	}()
+
+	var output bytes.Buffer
+	if _, err := stdcopy.StdCopy(&output, &output, logs); err != nil {
+		return "", err
+	}
+
+	return output.String(), nil
 }
 
 func newAuditNetworkName() (string, error) {

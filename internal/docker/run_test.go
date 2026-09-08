@@ -97,6 +97,14 @@ func TestAuditProxyHostConfigPreventsNewPrivileges(t *testing.T) {
 	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
 }
 
+func TestAuditProxyConfigUsesConfiguredUser(t *testing.T) {
+	proxyConfig := auditProxyConfig(&NetworkAudit{}, "1001:1001")
+
+	assert.Equal(t, []string{""}, proxyConfig.Entrypoint)
+	assert.Contains(t, proxyConfig.Env, "HOME="+auditProxyHomeDirectory)
+	assert.Equal(t, "1001:1001", proxyConfig.User)
+}
+
 func TestContainerCommandUsesAuditEntrypoint(t *testing.T) {
 	request := RunRequest{
 		Command:      []string{"provider", "--help"},

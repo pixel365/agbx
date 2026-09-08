@@ -23,7 +23,6 @@ import (
 const (
 	securityTestImageRepository = "agbx/security-test"
 	securityTestRuntimeUser     = "1234:1234"
-	securityTestUser            = "65532:65532"
 	securityTestDirectoryPrefix = ".agbx-security-test-"
 	securityStateFileName       = "security-state"
 	securityStateCommand        = `printf 'UID:\t'; id -u
@@ -38,17 +37,18 @@ var securityTestBaseImages = []config.Image{
 
 func TestIntegrationAgentSecurityState(t *testing.T) {
 	client := newSecurityTestClient(t)
+	user := securityTestUser(t)
 	for _, baseImage := range securityTestBaseImages {
 		t.Run(baseImage.Name, func(t *testing.T) {
 			image := buildSecurityTestImage(t, client, baseImage)
 
 			t.Run("normal", func(t *testing.T) {
-				output := runSecurityStateProbe(t, client, image, nil)
-				requireUnprivilegedSecurityState(t, output)
+				output := runSecurityStateProbe(t, client, image, user, nil)
+				requireUnprivilegedSecurityState(t, output, user)
 			})
 			t.Run("audit", func(t *testing.T) {
-				output := runSecurityStateProbe(t, client, image, newSecurityTestAudit(t))
-				requireUnprivilegedSecurityState(t, output)
+				output := runSecurityStateProbe(t, client, image, user, newSecurityTestAudit(t))
+				requireUnprivilegedSecurityState(t, output, user)
 			})
 		})
 	}
@@ -106,7 +106,6 @@ func newSecurityTestAudit(t *testing.T) *NetworkAudit {
 		LogDirectory: filepath.Join(directory, "audit"),
 	})
 	require.NoError(t, err)
-
 	return &NetworkAudit{
 		CertificatePath:     settings.CertificatePath,
 		LogDirectory:        settings.LogDirectory,
@@ -119,14 +118,13 @@ func runSecurityStateProbe(
 	t *testing.T,
 	client *Client,
 	image string,
+	user string,
 	audit *NetworkAudit,
 ) string {
 	t.Helper()
 
 	workspace := securityTestDirectory(t)
 	stateDirectory := securityTestDirectory(t)
-	require.NoError(t, os.Chmod(workspace, 0o777))
-	require.NoError(t, os.Chmod(stateDirectory, 0o755))
 	statePath := filepath.Join(workspace, securityStateFileName)
 
 	require.NoError(t, client.Run(t.Context(), RunRequest{
@@ -140,7 +138,7 @@ func runSecurityStateProbe(
 		Input:            bytes.NewReader(nil),
 		NetworkAudit:     audit,
 		StateDirectory:   stateDirectory,
-		User:             securityTestUser,
+		User:             user,
 		WorkingDirectory: workspace,
 	}))
 	// #nosec G304 -- The file is created by the probe below its test workspace.
@@ -148,6 +146,18 @@ func runSecurityStateProbe(
 	require.NoError(t, err)
 
 	return string(output)
+}
+
+func securityTestUser(t *testing.T) string {
+	t.Helper()
+
+	userID := os.Getuid()
+	if userID < 0 {
+		t.Skip("host does not report a POSIX user ID")
+	}
+	require.NotZero(t, userID, "integration test must not run as root")
+
+	return fmt.Sprintf("%d:%d", userID, os.Getgid())
 }
 
 func securityTestDirectory(t *testing.T) string {
@@ -181,13 +191,15 @@ func parseSecurityState(t *testing.T, output string) map[string]string {
 	return state
 }
 
-func requireUnprivilegedSecurityState(t *testing.T, output string) {
+func requireUnprivilegedSecurityState(t *testing.T, output string, user string) {
 	t.Helper()
 
+	userID, groupID, found := strings.Cut(user, ":")
+	require.True(t, found)
 	state := parseSecurityState(t, output)
 	for name, expectedValue := range map[string]string{
-		"UID:":        "65532",
-		"GID:":        "65532",
+		"UID:":        userID,
+		"GID:":        groupID,
 		"CapInh:":     "0000000000000000",
 		"CapPrm:":     "0000000000000000",
 		"CapEff:":     "0000000000000000",
