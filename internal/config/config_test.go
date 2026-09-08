@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pixel365/agbx/internal/networkpolicy"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 	auditLogDirectory        = "network-audit"
 	auditRedactedHeader      = "Authorization"
 	auditRedactedQueryParam  = "access_token"
+	allowedNetworkHost       = "api.example.com"
+	providerNetworkHost      = "registry.example.com"
 	otherProviderName        = "codex"
 	otherProviderMountSource = "codex-instructions"
 	otherProviderMountTarget = AdditionalMountDirectory + "/codex-instructions"
@@ -132,6 +136,33 @@ func TestLoadReadsNetworkAudit(t *testing.T) {
 		t,
 		[]string{auditRedactedQueryParam},
 		configuration.Network.Audit.Redact.QueryParameters,
+	)
+}
+
+func TestLoadReadsNetworkPolicy(t *testing.T) {
+	directory := t.TempDir()
+	filePath := filepath.Join(directory, defaultYAMLFileName)
+	contents := validConfigYAML +
+		"network:\n  policy:\n    default: deny\n    allow:\n      - " + allowedNetworkHost + "\n" +
+		"providers:\n  " + testProviderName + ":\n    network:\n      allow:\n" +
+		"        - " + providerNetworkHost + "\n"
+	require.NoError(t, os.WriteFile(filePath, []byte(contents), 0o600))
+
+	configuration, err := Load(filePath)
+
+	require.NoError(t, err)
+	require.NotNil(t, configuration.Network.Policy)
+	assert.Equal(t, networkpolicy.DefaultDeny, configuration.Network.Policy.Default)
+	assert.Equal(t, []string{allowedNetworkHost}, configuration.Network.Policy.Allow)
+	assert.Equal(
+		t,
+		[]string{providerNetworkHost},
+		configuration.Providers[testProviderName].Network.Allow,
+	)
+	assert.Equal(
+		t,
+		[]string{allowedNetworkHost, providerNetworkHost},
+		configuration.NetworkPolicyForProvider(testProviderName).Allow,
 	)
 }
 
@@ -391,6 +422,30 @@ func TestConfigValidateRejectsInvalidNetworkAuditRedaction(t *testing.T) {
 			assert.EqualError(t, err, testCase.want)
 		})
 	}
+}
+
+func TestConfigValidateRejectsInvalidNetworkPolicy(t *testing.T) {
+	configuration := validConfig
+	configuration.Network.Policy = &networkpolicy.Policy{Default: "block"}
+
+	err := configuration.Validate()
+
+	assert.EqualError(t, err, "config network policy: default must be \"allow\" or \"deny\"")
+}
+
+func TestConfigValidateRejectsProviderNetworkPolicyWithoutGlobalPolicy(t *testing.T) {
+	configuration := validConfig
+	configuration.Providers = map[string]ProviderConfig{
+		testProviderName: {Network: networkpolicy.Additions{Allow: []string{allowedNetworkHost}}},
+	}
+
+	err := configuration.Validate()
+
+	assert.EqualError(
+		t,
+		err,
+		"config provider \"claude\" network policy requires config network policy",
+	)
 }
 
 func TestConfigValidateRejectsInvalidMount(t *testing.T) {

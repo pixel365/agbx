@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/networkpolicy"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 	caPEMFileName                = "mitmproxy-ca.pem"
 	certificateFileName          = "mitmproxy-ca-cert.pem"
 	redactionScriptFileName      = "redact.py"
+	policyScriptPattern          = "policy-*.py"
 	runDirectoryTimeFormat       = "20060102T150405.000000000Z"
 	redactedHeaderValue          = "[REDACTED]"
 	redactionScriptTemplate      = `from mitmproxy import http
@@ -60,23 +62,66 @@ def response(flow: http.HTTPFlow) -> None:
 def error(flow: http.HTTPFlow) -> None:
     redact_request(flow.request)
 `
+	policyScriptTemplate = `from mitmproxy import http
+
+DEFAULT = %q
+ALLOWED_HOSTS = frozenset(%s)
+DENIED_HOSTS = frozenset(%s)
+ALLOWED_PORTS = frozenset((80, 443))
+
+
+def matches(pattern: str, host: str) -> bool:
+    if pattern.startswith("*."):
+        return host.endswith(pattern[1:]) and host != pattern[2:]
+    return host == pattern
+
+
+def matches_any(patterns, host: str) -> bool:
+    return any(matches(pattern, host) for pattern in patterns)
+
+
+def is_allowed(host: str, port: int) -> bool:
+    if port not in ALLOWED_PORTS:
+        return False
+    if matches_any(DENIED_HOSTS, host):
+        return False
+    if matches_any(ALLOWED_HOSTS, host):
+        return True
+    return DEFAULT == "allow"
+
+
+def enforce(flow: http.HTTPFlow) -> None:
+    if flow.response is not None:
+        return
+    host = flow.request.host.lower().rstrip(".")
+    if is_allowed(host, flow.request.port):
+        return
+    message = "Network policy denied {}:{}\n".format(host, flow.request.port)
+    flow.response = http.Response.make(
+        403,
+        message.encode(),
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
+def http_connect(flow: http.HTTPFlow) -> None:
+    enforce(flow)
+
+
+def request(flow: http.HTTPFlow) -> None:
+    enforce(flow)
+`
 )
 
 type Settings struct {
 	CertificatePath     string
 	LogDirectory        string
 	ProxyConfigPath     string
+	PolicyScriptPath    string
 	RedactionScriptPath string
 }
 
-func Setup(configuration config.AuditConfig) (Settings, error) {
-	if err := ensureDirectory(configuration.LogDirectory); err != nil {
-		return Settings{}, fmt.Errorf(
-			"create network audit log directory %q: %w",
-			configuration.LogDirectory,
-			err,
-		)
-	}
+func Setup(audit *config.AuditConfig, policy *networkpolicy.Policy) (Settings, error) {
 	proxyConfigPath, err := proxyConfigDirectory()
 	if err != nil {
 		return Settings{}, err
@@ -85,33 +130,89 @@ func Setup(configuration config.AuditConfig) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	logDirectory, err := createRunDirectory(configuration.LogDirectory)
-	if err != nil {
-		return Settings{}, fmt.Errorf(
-			"create network audit run directory in %q: %w",
-			configuration.LogDirectory, err,
-		)
-	}
-	if hasRetention(configuration.Retention) {
-		if err := cleanupRunDirectories(configuration, logDirectory, time.Now().UTC()); err != nil {
+	settings := Settings{CertificatePath: certificatePath, ProxyConfigPath: proxyConfigPath}
+	if audit != nil {
+		if err := configureAudit(&settings, *audit); err != nil {
 			return Settings{}, err
+		}
+	}
+	if policy != nil {
+		policyScriptPath, err := createPolicyScript(proxyConfigPath, *policy)
+		if err != nil {
+			return Settings{}, err
+		}
+		settings.PolicyScriptPath = policyScriptPath
+	}
+
+	return settings, nil
+}
+
+func configureAudit(settings *Settings, audit config.AuditConfig) error {
+	if err := ensureDirectory(audit.LogDirectory); err != nil {
+		return fmt.Errorf("create network audit log directory %q: %w", audit.LogDirectory, err)
+	}
+	logDirectory, err := createRunDirectory(audit.LogDirectory)
+	if err != nil {
+		return fmt.Errorf("create network audit run directory in %q: %w", audit.LogDirectory, err)
+	}
+	if hasRetention(audit.Retention) {
+		if err := cleanupRunDirectories(audit, logDirectory, time.Now().UTC()); err != nil {
+			return err
 		}
 	}
 	redactionScriptPath, err := createRedactionScript(
 		logDirectory,
-		configuration.Redact.Headers,
-		configuration.Redact.QueryParameters,
+		audit.Redact.Headers,
+		audit.Redact.QueryParameters,
 	)
 	if err != nil {
-		return Settings{}, err
+		return err
+	}
+	settings.LogDirectory = logDirectory
+	settings.RedactionScriptPath = redactionScriptPath
+
+	return nil
+}
+
+func createPolicyScript(directory string, policy networkpolicy.Policy) (string, error) {
+	allowedHosts, err := json.Marshal(normalizedHostPatterns(policy.Allow))
+	if err != nil {
+		return "", fmt.Errorf("encode allowed network policy hosts: %w", err)
+	}
+	deniedHosts, err := json.Marshal(normalizedHostPatterns(policy.Deny))
+	if err != nil {
+		return "", fmt.Errorf("encode denied network policy hosts: %w", err)
+	}
+	script := fmt.Sprintf(policyScriptTemplate, policy.Default, allowedHosts, deniedHosts)
+	// #nosec G703 -- The directory is agbx's private network proxy state directory.
+	file, err := os.CreateTemp(directory, policyScriptPattern)
+	if err != nil {
+		return "", fmt.Errorf("create network policy script: %w", err)
+	}
+	path := file.Name()
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+
+		return "", fmt.Errorf("set network policy script permissions: %w", err)
+	}
+	if _, err := file.WriteString(script); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+		if removeErr := os.Remove(path); removeErr != nil {
+			err = errors.Join(err, removeErr)
+		}
+
+		return "", fmt.Errorf("write network policy script: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+
+		return "", fmt.Errorf("close network policy script: %w", err)
 	}
 
-	return Settings{
-		CertificatePath:     certificatePath,
-		LogDirectory:        logDirectory,
-		ProxyConfigPath:     proxyConfigPath,
-		RedactionScriptPath: redactionScriptPath,
-	}, nil
+	return path, nil
 }
 
 func createRedactionScript(
@@ -159,6 +260,15 @@ func normalizedQueryParameterNames(parameterNames []string) []string {
 	normalized := make([]string, 0, len(parameterNames))
 	for _, name := range parameterNames {
 		normalized = append(normalized, strings.TrimSpace(name))
+	}
+
+	return normalized
+}
+
+func normalizedHostPatterns(patterns []string) []string {
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		normalized = append(normalized, strings.ToLower(pattern))
 	}
 
 	return normalized

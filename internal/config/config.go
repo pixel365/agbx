@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v4"
+
+	"github.com/pixel365/agbx/internal/networkpolicy"
 )
 
 const (
@@ -34,8 +36,9 @@ type Config struct {
 }
 
 type ProviderConfig struct {
-	Dockerfiles []string `yaml:"dockerfiles,omitempty"`
-	Mounts      []Mount  `yaml:"mounts,omitempty"`
+	Dockerfiles []string                `yaml:"dockerfiles,omitempty"`
+	Mounts      []Mount                 `yaml:"mounts,omitempty"`
+	Network     networkpolicy.Additions `yaml:"network,omitempty"`
 }
 
 type PrepareConfig struct {
@@ -43,7 +46,8 @@ type PrepareConfig struct {
 }
 
 type NetworkConfig struct {
-	Audit *AuditConfig `yaml:"audit,omitempty"`
+	Audit  *AuditConfig          `yaml:"audit,omitempty"`
+	Policy *networkpolicy.Policy `yaml:"policy,omitempty"`
 }
 
 type AuditConfig struct {
@@ -107,14 +111,32 @@ func (c Config) Validate() error {
 	if err := c.validateMounts(); err != nil {
 		return err
 	}
+	if err := c.validateNetwork(); err != nil {
+		return err
+	}
+	if err := validateDockerfilePaths(c.Prepare.Dockerfiles); err != nil {
+		return fmt.Errorf("config prepare Dockerfiles: %w", err)
+	}
+
+	return c.validateProviders()
+}
+
+func (c Config) validateNetwork() error {
 	if c.Network.Audit != nil {
 		if err := c.Network.Audit.Validate(); err != nil {
 			return fmt.Errorf("config network audit: %w", err)
 		}
 	}
-	if err := validateDockerfilePaths(c.Prepare.Dockerfiles); err != nil {
-		return fmt.Errorf("config prepare Dockerfiles: %w", err)
+	if c.Network.Policy != nil {
+		if err := c.Network.Policy.Validate(); err != nil {
+			return fmt.Errorf("config network policy: %w", err)
+		}
 	}
+
+	return nil
+}
+
+func (c Config) validateProviders() error {
 	for _, name := range c.providerNames() {
 		if strings.TrimSpace(name) == "" {
 			return errors.New("config provider name is required")
@@ -125,6 +147,21 @@ func (c Config) Validate() error {
 		if err := validateDockerfilePaths(c.Providers[name].Dockerfiles); err != nil {
 			return fmt.Errorf("config provider %q Dockerfiles: %w", name, err)
 		}
+		if err := c.validateProviderNetworkPolicy(name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c Config) validateProviderNetworkPolicy(name string) error {
+	providerNetwork := c.Providers[name].Network
+	if c.Network.Policy == nil && !providerNetwork.IsEmpty() {
+		return fmt.Errorf("config provider %q network policy requires config network policy", name)
+	}
+	if err := providerNetwork.Validate(); err != nil {
+		return fmt.Errorf("config provider %q network policy: %w", name, err)
 	}
 
 	return nil
@@ -202,6 +239,16 @@ func (c Config) MountsForProvider(name string) ([]Mount, error) {
 	}
 
 	return mounts, nil
+}
+
+func (c Config) NetworkPolicyForProvider(name string) *networkpolicy.Policy {
+	if c.Network.Policy == nil {
+		return nil
+	}
+
+	policy := c.Network.Policy.With(c.Providers[name].Network)
+
+	return &policy
 }
 
 func (c Config) validateMounts() error {

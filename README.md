@@ -180,6 +180,39 @@ provider name, for example `agbx --config /path/to/.agbx.yaml claude`.
 `read_only` defaults to `true`. Mount targets must be absolute paths within
 `/agbx`; overlapping targets are rejected.
 
+### Network policy
+
+`network.policy` controls HTTP(S) and WebSocket egress through the isolated
+network proxy. A policy requires an explicit default action. Rules are exact
+hostnames or `*.` subdomain patterns; ports other than `80` and `443` are
+always denied. `deny` wins over `allow` at both configuration levels.
+
+```yaml
+network:
+  policy:
+    default: deny
+    allow:
+      - github.com
+    deny:
+      - telemetry.example.com
+
+providers:
+  claude:
+    network:
+      allow:
+        - api.anthropic.com
+```
+
+Global rules apply to every provider. A provider can add `allow` and `deny`
+rules, but cannot change the global default or override a global denial. The
+example permits Claude's HTTPS and WSS connections to `api.anthropic.com`, as
+well as `github.com`, while denying telemetry. Provider network rules require a
+global `network.policy`.
+
+When no policy is configured, networking keeps its existing behavior. Policy
+enforcement is performed by the HTTP(S) proxy; it does not claim to be a
+general-purpose firewall for protocols that do not use the proxy, DNS, or QUIC.
+
 ### Network audit
 
 To capture outgoing HTTP(S) requests and responses, enable a network audit and
@@ -202,7 +235,7 @@ network:
 ```
 
 `agbx` creates an isolated Docker network for the agent and starts an
-intercepting proxy as its only network peer. Every run gets a separate
+intercepting proxy as its network peer. Every audited run gets a separate
 timestamped subdirectory. The proxy records both an
 incremental `flows.mitm` file and `flows.har` when the run ends. Its diagnostic
 output is written to `proxy.log`. Its local CA is trusted only inside the agent
@@ -224,11 +257,10 @@ request has been sent, before the flow is persisted in `flows.mitm` and
 Normal proxy flow output is disabled, so `proxy.log` is limited to proxy
 diagnostics.
 
-The first audited run pulls the pinned `mitmproxy` image. It also prepares a
-new provider image automatically when the current agbx runtime requires one.
-Requests that do not support standard HTTP proxy environment variables cannot
-bypass the audit: they will fail because the agent container has no direct
-network route.
+The first audited or policy-controlled run pulls the pinned `mitmproxy` image.
+It also prepares a new provider image automatically when the current agbx
+runtime requires one. Start with audit alone to inspect the actual destinations
+used by a provider before adopting a strict `default: deny` policy.
 
 ## Commands
 

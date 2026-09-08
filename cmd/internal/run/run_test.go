@@ -206,6 +206,30 @@ func TestProviderCommandConfiguresNetworkAudit(t *testing.T) {
 	)
 }
 
+func TestProviderCommandConfiguresNetworkPolicy(t *testing.T) {
+	directory := t.TempDir()
+	stateHome := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	t.Setenv(dataHomeEnvironmentVariable, stateHome)
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	contents := validConfig + "network:\n  policy:\n    default: deny\n    allow:\n      - github.com\n" +
+		"providers:\n  " + providerName + ":\n    network:\n      allow:\n        - api.example.com\n"
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(contents), 0o600),
+	)
+
+	dockerClient := &recordingDockerClient{hasImage: true}
+	cmd := NewProviderCommand(func() (DockerClient, error) {
+		return dockerClient, nil
+	}, testProvider{})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.NotNil(t, dockerClient.request.NetworkAudit)
+	assert.Empty(t, dockerClient.request.NetworkAudit.LogDirectory)
+	assert.NotEmpty(t, dockerClient.request.NetworkAudit.PolicyScriptPath)
+}
+
 func TestProviderStateDirectoryUsesXDGDataHome(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv(dataHomeEnvironmentVariable, dataHome)

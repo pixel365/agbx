@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -69,6 +70,7 @@ type NetworkAudit struct {
 	CertificatePath     string
 	LogDirectory        string
 	NetworkName         string
+	PolicyScriptPath    string
 	ProxyConfigPath     string
 	RedactionScriptPath string
 }
@@ -80,7 +82,7 @@ func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 		}
 	}
 	if request.NetworkAudit != nil {
-		defer removeAuditRedactionScript(request.NetworkAudit.RedactionScriptPath)
+		defer removeNetworkAuditScripts(request.NetworkAudit)
 
 		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
 		if err != nil {
@@ -231,11 +233,22 @@ func auditProxyCommand(audit *NetworkAudit) []string {
 	command := []string{
 		"mitmdump",
 		auditProxySetOption, "confdir=" + auditProxyConfigDirectory,
-		auditProxySetOption, "hardump=" + auditProxyLogDirectory + "/flows.har",
 		auditProxySetOption, "flow_detail=0",
 		auditProxySetOption, "onboarding=false",
-		auditProxySetOption, "save_stream_file=" + auditProxyLogDirectory + "/flows.mitm",
-		auditProxySetOption, "store_streamed_bodies=true",
+	}
+	if audit.LogDirectory != "" {
+		command = append(command,
+			auditProxySetOption, "hardump="+auditProxyLogDirectory+"/flows.har",
+			auditProxySetOption, "save_stream_file="+auditProxyLogDirectory+"/flows.mitm",
+			auditProxySetOption, "store_streamed_bodies=true",
+		)
+	}
+	if audit.PolicyScriptPath != "" {
+		command = append(
+			command,
+			auditProxyScriptOption,
+			path.Join(auditProxyConfigDirectory, filepath.Base(audit.PolicyScriptPath)),
+		)
 	}
 	if audit.RedactionScriptPath != "" {
 		command = append(command, auditProxyScriptOption, auditProxyRedactionScript)
@@ -245,9 +258,9 @@ func auditProxyCommand(audit *NetworkAudit) []string {
 }
 
 func auditProxyMounts(audit *NetworkAudit) []mount.Mount {
-	mounts := []mount.Mount{
-		bindMount(audit.LogDirectory, auditProxyLogDirectory, false),
-		bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false),
+	mounts := []mount.Mount{bindMount(audit.ProxyConfigPath, auditProxyConfigDirectory, false)}
+	if audit.LogDirectory != "" {
+		mounts = append(mounts, bindMount(audit.LogDirectory, auditProxyLogDirectory, false))
 	}
 	if audit.RedactionScriptPath != "" {
 		mounts = append(
@@ -335,19 +348,23 @@ func (c *Client) removeNetworkAudit(audit *NetworkAudit, proxyID string) {
 	ctx := context.Background()
 	if proxyID != "" {
 		_, _ = c.api.ContainerStop(ctx, proxyID, mobyclient.ContainerStopOptions{})
-		c.writeAuditProxyLog(ctx, audit.LogDirectory, proxyID)
+		if audit.LogDirectory != "" {
+			c.writeAuditProxyLog(ctx, audit.LogDirectory, proxyID)
+		}
 		_, _ = c.api.ContainerRemove(ctx, proxyID, mobyclient.ContainerRemoveOptions{Force: true})
 	}
 	_, _ = c.api.NetworkRemove(ctx, audit.NetworkName, mobyclient.NetworkRemoveOptions{})
 }
 
-func removeAuditRedactionScript(path string) {
-	if path == "" {
-		return
-	}
+func removeNetworkAuditScripts(audit *NetworkAudit) {
+	for _, path := range []string{audit.PolicyScriptPath, audit.RedactionScriptPath} {
+		if path == "" {
+			continue
+		}
 
-	// #nosec G703 -- The script is created in the network audit run directory.
-	_ = os.Remove(path)
+		// #nosec G703 -- Each script is created by agbx in its private local state.
+		_ = os.Remove(path)
+	}
 }
 
 func (c *Client) writeAuditProxyLog(ctx context.Context, directory string, proxyID string) {

@@ -112,7 +112,7 @@ func runProvider(
 	if err != nil {
 		return err
 	}
-	networkAudit, err := networkAuditConfiguration(configuration)
+	networkAudit, err := networkAuditConfiguration(configuration, selectedProvider.Name())
 	if err != nil {
 		return err
 	}
@@ -160,19 +160,24 @@ func ensureProviderImage(
 	return err
 }
 
-func networkAuditConfiguration(configuration config.Config) (*docker.NetworkAudit, error) {
-	if configuration.Network.Audit == nil {
+func networkAuditConfiguration(
+	configuration config.Config,
+	providerName string,
+) (*docker.NetworkAudit, error) {
+	policy := configuration.NetworkPolicyForProvider(providerName)
+	if configuration.Network.Audit == nil && policy == nil {
 		return nil, nil
 	}
 
-	settings, err := networkaudit.Setup(*configuration.Network.Audit)
+	settings, err := networkaudit.Setup(configuration.Network.Audit, policy)
 	if err != nil {
-		return nil, fmt.Errorf("set up network audit: %w", err)
+		return nil, fmt.Errorf("set up network proxy: %w", err)
 	}
 
 	return &docker.NetworkAudit{
 		CertificatePath:     settings.CertificatePath,
 		LogDirectory:        settings.LogDirectory,
+		PolicyScriptPath:    settings.PolicyScriptPath,
 		ProxyConfigPath:     settings.ProxyConfigPath,
 		RedactionScriptPath: settings.RedactionScriptPath,
 	}, nil

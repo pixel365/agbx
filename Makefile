@@ -32,7 +32,7 @@ test:
 
 ## integration: Run Docker-backed integration tests
 integration:
-	go test -tags=integration ./internal/docker
+	go test -tags=$@ ./internal/docker
 
 ## vet: Run go vet
 vet:

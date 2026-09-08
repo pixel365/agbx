@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/charmbracelet/x/term"
@@ -149,6 +151,29 @@ func TestAuditProxyUsesRedactionScript(t *testing.T) {
 	}, mounts[len(mounts)-1])
 	assert.Contains(t, command, auditProxySetOption)
 	assert.Contains(t, command, "flow_detail=0")
+}
+
+func TestAuditProxyUsesPolicyScriptWithoutAuditLog(t *testing.T) {
+	audit := &NetworkAudit{
+		PolicyScriptPath: "/host/proxy-config/policy-123.py",
+		ProxyConfigPath:  "/host/proxy-config",
+	}
+
+	command := auditProxyCommand(audit)
+	mounts := auditProxyMounts(audit)
+
+	assert.Contains(
+		t,
+		command,
+		path.Join(auditProxyConfigDirectory, filepath.Base(audit.PolicyScriptPath)),
+	)
+	assert.NotContains(t, command, "hardump="+auditProxyLogDirectory+"/flows.har")
+	assert.Len(t, mounts, 1)
+	assert.Equal(t, mount.Mount{
+		Type:   mount.TypeBind,
+		Source: audit.ProxyConfigPath,
+		Target: auditProxyConfigDirectory,
+	}, mounts[0])
 }
 
 func TestMakeRawInputRestoresTerminal(t *testing.T) {

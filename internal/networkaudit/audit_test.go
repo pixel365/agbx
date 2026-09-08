@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/networkpolicy"
 )
 
 const (
@@ -27,7 +28,7 @@ func TestSetupCreatesCertificateAndLogDirectory(t *testing.T) {
 	logDirectory := filepath.Join(t.TempDir(), "logs")
 	t.Setenv(stateHomeEnvironmentVariable, stateHome)
 
-	settings, err := Setup(config.AuditConfig{LogDirectory: logDirectory})
+	settings, err := Setup(&config.AuditConfig{LogDirectory: logDirectory}, nil)
 
 	require.NoError(t, err)
 	assert.NotEqual(t, logDirectory, settings.LogDirectory)
@@ -53,11 +54,11 @@ func TestSetupReusesCertificate(t *testing.T) {
 	logDirectory := t.TempDir()
 	t.Setenv(stateHomeEnvironmentVariable, stateHome)
 
-	first, err := Setup(config.AuditConfig{LogDirectory: logDirectory})
+	first, err := Setup(&config.AuditConfig{LogDirectory: logDirectory}, nil)
 	require.NoError(t, err)
 	firstCertificate, err := os.ReadFile(first.CertificatePath)
 	require.NoError(t, err)
-	second, err := Setup(config.AuditConfig{LogDirectory: logDirectory})
+	second, err := Setup(&config.AuditConfig{LogDirectory: logDirectory}, nil)
 	require.NoError(t, err)
 	secondCertificate, err := os.ReadFile(second.CertificatePath)
 	require.NoError(t, err)
@@ -75,13 +76,13 @@ func TestSetupCreatesRedactionScript(t *testing.T) {
 	logDirectory := t.TempDir()
 	t.Setenv(stateHomeEnvironmentVariable, stateHome)
 
-	settings, err := Setup(config.AuditConfig{
+	settings, err := Setup(&config.AuditConfig{
 		LogDirectory: logDirectory,
 		Redact: config.AuditRedaction{
 			Headers:         []string{redactedHeader},
 			QueryParameters: []string{redactedQueryParam},
 		},
-	})
+	}, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, settings.LogDirectory, filepath.Dir(settings.RedactionScriptPath))
@@ -90,6 +91,27 @@ func TestSetupCreatesRedactionScript(t *testing.T) {
 	assert.Contains(t, string(contents), "authorization")
 	assert.Contains(t, string(contents), redactedQueryParam)
 	assert.Contains(t, string(contents), redactedHeaderValue)
+}
+
+func TestSetupCreatesPolicyScriptWithoutAudit(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(stateHomeEnvironmentVariable, stateHome)
+	policy := networkpolicy.Policy{
+		Default: networkpolicy.DefaultDeny,
+		Allow:   []string{"api.example.com"},
+	}
+
+	settings, err := Setup(nil, &policy)
+
+	require.NoError(t, err)
+	assert.Empty(t, settings.LogDirectory)
+	assert.Empty(t, settings.RedactionScriptPath)
+	assert.NotEmpty(t, settings.PolicyScriptPath)
+	assert.Equal(t, settings.ProxyConfigPath, filepath.Dir(settings.PolicyScriptPath))
+	contents, err := os.ReadFile(settings.PolicyScriptPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(contents), `DEFAULT = "deny"`)
+	assert.Contains(t, string(contents), "api.example.com")
 }
 
 func TestCleanupRunDirectoriesKeepsNewestRuns(t *testing.T) {

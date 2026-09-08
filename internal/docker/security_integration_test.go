@@ -102,9 +102,9 @@ func newSecurityTestAudit(t *testing.T) *NetworkAudit {
 
 	directory := securityTestDirectory(t)
 	t.Setenv("XDG_STATE_HOME", directory)
-	settings, err := networkaudit.Setup(config.AuditConfig{
+	settings, err := networkaudit.Setup(&config.AuditConfig{
 		LogDirectory: filepath.Join(directory, "audit"),
-	})
+	}, nil)
 	require.NoError(t, err)
 	return &NetworkAudit{
 		CertificatePath:     settings.CertificatePath,
