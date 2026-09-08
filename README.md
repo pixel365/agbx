@@ -252,6 +252,6 @@ Makefile provides common development commands; run `make help` to list them.
 
 See [SECURITY.md](.github/SECURITY.md) for vulnerability reporting and release
 verification instructions. All containers disable privilege escalation. Normal
-provider runs also drop all Linux capabilities. A network-audited provider
-temporarily retains capabilities to install the audit proxy's CA before dropping
-to the configured user.
+provider runs also drop all Linux capabilities. A network-audited provider starts
+as root to install the audit proxy's CA, then drops to the configured user and
+clears all Linux capability sets before starting the agent.

@@ -72,7 +72,7 @@ RUN printf '%s\n' \
         '        *:*) user_id="${run_as%%:*}"; group_id="${run_as#*:}" ;;' \
         '        *) echo "invalid container user: $run_as" >&2; exit 1 ;;' \
         '    esac' \
-        '    exec setpriv --reuid "$user_id" --regid "$group_id" --clear-groups -- "$@"' \
+        '    exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all --reuid "$user_id" --regid "$group_id" --clear-groups -- "$@"' \
         'fi' \
         'exec "$@"' \
         > /usr/local/bin/agbx-run && \

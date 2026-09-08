@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X $(VERSION_PKG).commit=$(COMMIT) \
 	-X $(VERSION_PKG).releaseDate=$(RELEASE_DATE)
 
-.PHONY: build test vet lint tidy fieldalignment goimports golines gofmt fix formatters check help
+.PHONY: build test integration vet lint tidy fieldalignment goimports golines gofmt fix formatters check help
 
 ## all: Synchronize dependencies and format source code
 all: tidy fieldalignment formatters
@@ -29,6 +29,10 @@ build:
 ## test: Run tests with the race detector
 test:
 	go $@ -race ./...
+
+## integration: Run Docker-backed integration tests
+integration:
+	go test -tags=integration ./internal/docker
 
 ## vet: Run go vet
 vet:
