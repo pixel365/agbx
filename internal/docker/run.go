@@ -24,7 +24,6 @@ import (
 const (
 	defaultWorkspaceDirectory = "/workspace"
 	homeDirectory             = "/home/agbx"
-	auditProxyHomeDirectory   = "/home/mitmproxy"
 	auditCertificateTarget    = "/agbx/network-audit-ca.crt"
 	auditProxyAlias           = "agbx-network-audit"
 	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
@@ -80,7 +79,7 @@ func (c *Client) Run(ctx context.Context, request RunRequest) (runErr error) {
 	if request.NetworkAudit != nil {
 		defer removeAuditRedactionScript(request.NetworkAudit.RedactionScriptPath)
 
-		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit, request.User)
+		stopAudit, err := c.startNetworkAudit(ctx, request.NetworkAudit)
 		if err != nil {
 			return err
 		}
@@ -132,7 +131,6 @@ func (c *Client) pullImage(ctx context.Context, image string) error {
 func (c *Client) startNetworkAudit(
 	ctx context.Context,
 	audit *NetworkAudit,
-	user string,
 ) (func(), error) {
 	networkName, err := newAuditNetworkName()
 	if err != nil {
@@ -151,7 +149,7 @@ func (c *Client) startNetworkAudit(
 	}
 
 	proxy, err := c.api.ContainerCreate(ctx, mobyclient.ContainerCreateOptions{
-		Config:     auditProxyConfig(audit, user),
+		Config:     auditProxyConfig(audit),
 		HostConfig: auditProxyHostConfig(audit),
 	})
 	if err != nil {
@@ -189,15 +187,10 @@ func (c *Client) startNetworkAudit(
 	}, nil
 }
 
-func auditProxyConfig(audit *NetworkAudit, user string) *container.Config {
+func auditProxyConfig(audit *NetworkAudit) *container.Config {
 	return &container.Config{
-		Cmd: auditProxyCommand(audit),
-		// The image entrypoint changes users through gosu, which needs privileges
-		// unavailable under no-new-privileges. The configured confdir makes it unnecessary.
-		Entrypoint: []string{""},
-		Env:        []string{"HOME=" + auditProxyHomeDirectory},
-		Image:      auditProxyImage,
-		User:       user,
+		Cmd:   auditProxyCommand(audit),
+		Image: auditProxyImage,
 		Healthcheck: &container.HealthConfig{
 			Interval:      time.Second,
 			Retries:       3,
@@ -215,10 +208,9 @@ func auditProxyConfig(audit *NetworkAudit, user string) *container.Config {
 }
 
 func auditProxyHostConfig(audit *NetworkAudit) *container.HostConfig {
+	// The official entrypoint maps bind-mount ownership before dropping privileges.
 	return &container.HostConfig{
 		Mounts: auditProxyMounts(audit),
-		// The proxy runs as the configured user and cannot gain new privileges.
-		SecurityOpt: []string{noNewPrivileges},
 	}
 }
 

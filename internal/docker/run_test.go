@@ -90,21 +90,6 @@ func TestContainerUserUsesRootForAuditBootstrap(t *testing.T) {
 	assert.Equal(t, rootUser, containerUser(RunRequest{NetworkAudit: &NetworkAudit{}}))
 }
 
-func TestAuditProxyHostConfigPreventsNewPrivileges(t *testing.T) {
-	hostConfig := auditProxyHostConfig(&NetworkAudit{})
-
-	assert.Empty(t, hostConfig.CapDrop)
-	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
-}
-
-func TestAuditProxyConfigUsesConfiguredUser(t *testing.T) {
-	proxyConfig := auditProxyConfig(&NetworkAudit{}, "1001:1001")
-
-	assert.Equal(t, []string{""}, proxyConfig.Entrypoint)
-	assert.Contains(t, proxyConfig.Env, "HOME="+auditProxyHomeDirectory)
-	assert.Equal(t, "1001:1001", proxyConfig.User)
-}
-
 func TestContainerCommandUsesAuditEntrypoint(t *testing.T) {
 	request := RunRequest{
 		Command:      []string{"provider", "--help"},
