@@ -60,10 +60,10 @@ is cached locally; changing the base-image configuration or provider setup
 creates a new prepared image automatically. Use `agbx prepare <provider>` to
 prebuild it, or add `--force` to rebuild it explicitly.
 
-The provider command starts its prepared image interactively. The current
-directory is mounted read-write at a stable, configuration-specific path below
-`/workspace`; provider authentication state is shared between projects under
-`${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
+By default, a provider command starts its prepared image interactively. The
+current directory is mounted read-write at a stable, configuration-specific path
+below `/workspace`; provider authentication state is shared between projects
+under `${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
 
 ## Configuration
 
@@ -156,7 +156,26 @@ read-only mount permissions.
 On the first `agbx codex`, Codex uses device authentication: open the
 displayed link on the host and enter its one-time code. This avoids the browser
 redirect callback being sent into the container. Explicit `login` and `logout`
-commands remain available through `agbx codex -- <command>`.
+commands remain available through `agbx codex <command>`.
+
+Arguments after a provider name are passed through unchanged, including flags:
+
+```sh
+agbx claude --dangerously-skip-permissions
+agbx codex --full-auto
+```
+
+For a one-off prompt, use each provider's non-interactive mode. Codex also
+accepts an initial prompt in its interactive mode:
+
+```sh
+agbx claude -p "describe this project"
+agbx codex "describe this project"
+agbx codex exec "describe this project"
+```
+
+Use `agbx help <provider>` for launcher help. Global flags remain before the
+provider name, for example `agbx --config /path/to/.agbx.yaml claude`.
 
 `read_only` defaults to `true`. Mount targets must be absolute paths within
 `/agbx`; overlapping targets are rejected.
@@ -217,11 +236,12 @@ network route.
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
 | `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
-| `agbx prepare <provider>`            | Prebuild or rebuild a provider image.                            |
+| `agbx prepare <provider> [--force]`  | Prebuild an image; `--force` rebuilds an existing one.           |
 | `agbx <provider> [arguments...]`     | Start a provider, preparing its image when needed.                |
 | `agbx version [-v]`                  | Print version metadata.                                          |
 
-Run `agbx <command> --help` for command-specific options.
+Run `agbx <command> --help` for built-in command options, or
+`agbx help <provider>` for launcher help.
 
 ## Development
 
@@ -231,4 +251,7 @@ Makefile provides common development commands; run `make help` to list them.
 ## Security
 
 See [SECURITY.md](.github/SECURITY.md) for vulnerability reporting and release
-verification instructions.
+verification instructions. All containers disable privilege escalation. Normal
+provider runs also drop all Linux capabilities. A network-audited provider
+temporarily retains capabilities to install the audit proxy's CA before dropping
+to the configured user.

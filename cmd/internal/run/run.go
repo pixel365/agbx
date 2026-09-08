@@ -39,9 +39,10 @@ func NewProviderCommand(
 	selectedProvider provider.Provider,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:   selectedProvider.Name() + " [arguments...]",
-		Short: "Run a provider in the configured container",
-		Args:  cobra.ArbitraryArgs,
+		Use:                selectedProvider.Name() + " [arguments...]",
+		Short:              "Run a provider in the configured container",
+		Args:               cobra.ArbitraryArgs,
+		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runProvider(cmd, args, newDockerClient, selectedProvider)
 		},

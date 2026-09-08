@@ -117,6 +117,16 @@ func TestRootCommandRunsProviderAtTopLevel(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 }
 
+func TestRootCommandShowsProviderHelp(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommand(availableDockerClientFactory)
+	cmd.SetArgs([]string{"help", claude.New().Name()})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "Run a provider in the configured container")
+}
+
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 

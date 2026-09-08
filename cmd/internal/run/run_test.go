@@ -46,10 +46,14 @@ func TestProviderCommandRunsConfiguredImage(t *testing.T) {
 	cmd := NewProviderCommand(func() (DockerClient, error) {
 		return dockerClient, nil
 	}, testProvider{})
-	cmd.SetArgs([]string{"--", "--help"})
+	cmd.SetArgs([]string{"--dangerously-skip-permissions"})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	assert.Equal(t, []string{providerName, "--help"}, dockerClient.request.Command)
+	assert.Equal(
+		t,
+		[]string{providerName, "--dangerously-skip-permissions"},
+		dockerClient.request.Command,
+	)
 	expectedImage := config.Image{
 		Name:   exampleImageName,
 		Tag:    exampleImageTag,
