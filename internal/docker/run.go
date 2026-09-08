@@ -27,6 +27,8 @@ const (
 	auditProxyConfigDirectory = "/home/mitmproxy/.mitmproxy"
 	auditProxyLogDirectory    = "/logs"
 	auditProxyRedactionScript = "/agbx/redact.py"
+	allCapabilities           = "ALL"
+	noNewPrivileges           = "no-new-privileges=true"
 
 	//nolint:nolintlint
 	auditProxyImage = "mitmproxy/mitmproxy@sha256:00b77b5d8804c8ad18cb6caefbf9d5849e895e8986c5ce011f4ae30f4385962f"
@@ -161,7 +163,7 @@ func (c *Client) startNetworkAudit(
 				Timeout: time.Second,
 			},
 		},
-		HostConfig: &container.HostConfig{Mounts: auditProxyMounts(audit)},
+		HostConfig: auditProxyHostConfig(audit),
 	})
 	if err != nil {
 		c.removeNetworkAudit(audit, "")
@@ -196,6 +198,14 @@ func (c *Client) startNetworkAudit(
 	return func() {
 		c.removeNetworkAudit(audit, proxy.ID)
 	}, nil
+}
+
+func auditProxyHostConfig(audit *NetworkAudit) *container.HostConfig {
+	return &container.HostConfig{
+		Mounts: auditProxyMounts(audit),
+		// The proxy entrypoint lowers its privileges after startup.
+		SecurityOpt: []string{noNewPrivileges},
+	}
 }
 
 func auditProxyCommand(audit *NetworkAudit) []string {
@@ -357,11 +367,7 @@ func (c *Client) createContainer(
 			User:         containerUser(request),
 			WorkingDir:   containerWorkspaceDirectory(request),
 		},
-		HostConfig: &container.HostConfig{
-			AutoRemove:  true,
-			Mounts:      containerMounts(request),
-			NetworkMode: containerNetworkMode(request),
-		},
+		HostConfig:       containerHostConfig(request),
 		NetworkingConfig: containerNetworkingConfig(request),
 	})
 	if err != nil {
@@ -369,6 +375,22 @@ func (c *Client) createContainer(
 	}
 
 	return createdContainer, nil
+}
+
+func containerHostConfig(request RunRequest) *container.HostConfig {
+	hostConfig := &container.HostConfig{
+		AutoRemove:  true,
+		Mounts:      containerMounts(request),
+		NetworkMode: containerNetworkMode(request),
+		SecurityOpt: []string{noNewPrivileges},
+	}
+	if request.NetworkAudit != nil {
+		// The audit runtime starts as root to install the proxy CA, then lowers privileges.
+		return hostConfig
+	}
+	hostConfig.CapDrop = []string{allCapabilities}
+
+	return hostConfig
 }
 
 func containerCommand(request RunRequest) []string {

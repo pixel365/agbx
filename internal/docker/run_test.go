@@ -72,6 +72,27 @@ func TestContainerMountsIncludesAuditCertificate(t *testing.T) {
 	}, containerMounts(request)[2:])
 }
 
+func TestContainerHostConfigDropsAllCapabilitiesWithoutAudit(t *testing.T) {
+	hostConfig := containerHostConfig(RunRequest{})
+
+	assert.Equal(t, []string{allCapabilities}, hostConfig.CapDrop)
+	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
+}
+
+func TestContainerHostConfigKeepsCapabilitiesForAuditBootstrap(t *testing.T) {
+	hostConfig := containerHostConfig(RunRequest{NetworkAudit: &NetworkAudit{}})
+
+	assert.Empty(t, hostConfig.CapDrop)
+	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
+}
+
+func TestAuditProxyHostConfigPreventsNewPrivileges(t *testing.T) {
+	hostConfig := auditProxyHostConfig(&NetworkAudit{})
+
+	assert.Empty(t, hostConfig.CapDrop)
+	assert.Equal(t, []string{noNewPrivileges}, hostConfig.SecurityOpt)
+}
+
 func TestContainerCommandUsesAuditEntrypoint(t *testing.T) {
 	request := RunRequest{
 		Command:      []string{"provider", "--help"},
