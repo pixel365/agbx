@@ -2,6 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ARG RTK_VERSION=0.47.0
+ARG UV_VERSION=0.12.11
+ARG YQ_VERSION=4.53.3
 ARG PROVIDER_PACKAGES=""
 ARG TOOL_PACKAGES="bash \
     ca-certificates \
@@ -11,9 +13,12 @@ ARG TOOL_PACKAGES="bash \
     file \
     findutils \
     git \
+    iproute2 \
     jq \
     less \
+    lsof \
     make \
+    netcat-openbsd \
     nodejs \
     npm \
     openssl \
@@ -22,20 +27,71 @@ ARG TOOL_PACKAGES="bash \
     procps \
     python3 \
     ripgrep \
+    rsync \
+    shellcheck \
     tar \
     unzip \
-    util-linux"
+    util-linux \
+    zip"
 
 RUN if command -v apk > /dev/null; then \
-        apk add --no-cache ${TOOL_PACKAGES} ${PROVIDER_PACKAGES}; \
+        apk add --no-cache ${TOOL_PACKAGES} fd ${PROVIDER_PACKAGES}; \
     elif command -v apt-get > /dev/null; then \
         apt-get update && \
-        apt-get install --yes --no-install-recommends ${TOOL_PACKAGES} ${PROVIDER_PACKAGES} && \
+        apt-get install --yes --no-install-recommends ${TOOL_PACKAGES} fd-find ${PROVIDER_PACKAGES} && \
         rm -rf /var/lib/apt/lists/*; \
     else \
         echo "unsupported Linux distribution: expected apk or apt-get" >&2; \
         exit 1; \
+    fi && \
+    if ! command -v fd > /dev/null && command -v fdfind > /dev/null; then \
+        ln -s "$(command -v fdfind)" /usr/local/bin/fd; \
     fi
+
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) yq_target="amd64" ;; \
+        aarch64) yq_target="arm64" ;; \
+        *) echo "unsupported architecture for yq: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    yq_binary="yq_linux_${yq_target}"; \
+    yq_release="https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}"; \
+    curl -fsSL "${yq_release}/${yq_binary}" -o "/tmp/${yq_binary}"; \
+    curl -fsSL "${yq_release}/checksums" -o /tmp/yq-checksums; \
+    curl -fsSL "${yq_release}/checksums_hashes_order" -o /tmp/yq-checksum-algorithms; \
+    yq_checksum_column="$(grep -n '^SHA-256$' /tmp/yq-checksum-algorithms | cut -d: -f1)"; \
+    yq_checksum_column="$((yq_checksum_column + 1))"; \
+    yq_expected="$(grep -m 1 "^${yq_binary}[[:space:]]" /tmp/yq-checksums | awk -v field="${yq_checksum_column}" '{print $field}')"; \
+    yq_actual="$(sha256sum "/tmp/${yq_binary}" | awk '{print $1}')"; \
+    test -n "${yq_expected}"; \
+    test "${yq_actual}" = "${yq_expected}"; \
+    install -m 0755 "/tmp/${yq_binary}" /usr/local/bin/yq; \
+    rm "/tmp/${yq_binary}" /tmp/yq-checksums /tmp/yq-checksum-algorithms
+
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) uv_architecture="x86_64" ;; \
+        aarch64) uv_architecture="aarch64" ;; \
+        *) echo "unsupported architecture for uv: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    if command -v apk > /dev/null; then \
+        uv_libc="musl"; \
+    else \
+        uv_libc="gnu"; \
+    fi; \
+    uv_target="${uv_architecture}-unknown-linux-${uv_libc}"; \
+    uv_archive="uv-${uv_target}.tar.gz"; \
+    uv_release="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"; \
+    curl -fsSL "${uv_release}/${uv_archive}" -o "/tmp/${uv_archive}"; \
+    curl -fsSL "${uv_release}/${uv_archive}.sha256" -o "/tmp/${uv_archive}.sha256"; \
+    cd /tmp; \
+    sha256sum -c "${uv_archive}.sha256"; \
+    tar -xzf "${uv_archive}"; \
+    test -f "uv-${uv_target}/uv"; \
+    test -f "uv-${uv_target}/uvx"; \
+    install -m 0755 "uv-${uv_target}/uv" /usr/local/bin/uv; \
+    install -m 0755 "uv-${uv_target}/uvx" /usr/local/bin/uvx; \
+    rm -rf "${uv_archive}" "${uv_archive}.sha256" "uv-${uv_target}"
 
 RUN set -eu; \
     case "$(uname -m)" in \

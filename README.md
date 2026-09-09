@@ -60,6 +60,16 @@ is cached locally; changing the base-image configuration or provider setup
 creates a new prepared image automatically. Use `agbx prepare <provider>` to
 prebuild it, or add `--force` to rebuild it explicitly.
 
+### Built-in tools
+
+Prepared provider images include a portable command-line toolbox in addition to
+the selected base image: `rg` and `fd` for search; `jq` and `yq` for structured
+data; Python 3 with `uv`; `git`, `make`, Node.js, npm, and
+[RTK](https://github.com/rtk-ai/rtk);
+and `shellcheck`, `ip`, `ss`, `lsof`, `nc`, `rsync`, `zip`, `unzip`, and `tar`.
+Use Dockerfile fragments when a project needs additional language runtimes,
+SDKs, databases, or other specialized tools.
+
 By default, a provider command starts its prepared image interactively. The
 current directory is mounted read-write at a stable, configuration-specific path
 below `/workspace`; provider authentication state is shared between projects
