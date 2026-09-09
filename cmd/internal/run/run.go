@@ -29,6 +29,8 @@ type DockerClient interface {
 
 type DockerClientFunc func() (DockerClient, error)
 
+type NetworkProxyConfigurationFunc func(config.Config, string) (*docker.NetworkProxy, error)
+
 const (
 	dataHomeEnvironmentVariable = "XDG_DATA_HOME"
 	workspaceDirectory          = "/workspace"
@@ -44,16 +46,23 @@ func NewProviderCommand(
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProvider(cmd, args, newDockerClient, selectedProvider)
+			return RunProvider(
+				cmd,
+				args,
+				newDockerClient,
+				selectedProvider,
+				networkProxyConfiguration,
+			)
 		},
 	}
 }
 
-func runProvider(
+func RunProvider(
 	cmd *cobra.Command,
 	args []string,
 	newDockerClient DockerClientFunc,
 	selectedProvider provider.Provider,
+	configureNetworkProxy NetworkProxyConfigurationFunc,
 ) error {
 	loadedConfig, err := commandconfig.LoadWithPath(cmd)
 	if err != nil {
@@ -112,7 +121,7 @@ func runProvider(
 	if err != nil {
 		return err
 	}
-	networkProxy, err := networkProxyConfiguration(configuration, selectedProvider.Name())
+	networkProxy, err := configureNetworkProxy(configuration, selectedProvider.Name())
 	if err != nil {
 		return err
 	}

@@ -23,15 +23,16 @@ import (
 )
 
 const (
-	stateHomeEnvironmentVariable = "XDG_STATE_HOME"
-	caDirectoryName              = "network"
-	caPEMFileName                = "mitmproxy-ca.pem"
-	certificateFileName          = "mitmproxy-ca-cert.pem"
-	redactionScriptFileName      = "redact.py"
-	policyScriptPattern          = "policy-*.py"
-	runDirectoryTimeFormat       = "20060102T150405.000000000Z"
-	redactedHeaderValue          = "[REDACTED]"
-	redactionScriptTemplate      = `from mitmproxy import http
+	stateHomeEnvironmentVariable   = "XDG_STATE_HOME"
+	caDirectoryName                = "network"
+	caPEMFileName                  = "mitmproxy-ca.pem"
+	certificateFileName            = "mitmproxy-ca-cert.pem"
+	redactionScriptFileName        = "redact.py"
+	policyScriptPattern            = "policy-*.py"
+	temporaryAuditDirectoryPattern = "learn-*"
+	runDirectoryTimeFormat         = "20060102T150405.000000000Z"
+	redactedHeaderValue            = "[REDACTED]"
+	redactionScriptTemplate        = `from mitmproxy import http
 
 REDACTED_HEADERS = frozenset(%s)
 REDACTED_QUERY_PARAMETERS = frozenset(%s)
@@ -152,6 +153,35 @@ func Setup(audit *config.AuditConfig, policy *networkpolicy.Policy) (Settings, e
 	}
 
 	return settings, nil
+}
+
+func SetupTemporaryAudit(redaction config.AuditRedaction) (Settings, func() error, error) {
+	proxyConfigPath, err := proxyConfigDirectory()
+	if err != nil {
+		return Settings{}, nil, err
+	}
+	// #nosec G703 -- The directory is created in agbx's private network proxy state.
+	directory, err := os.MkdirTemp(proxyConfigPath, temporaryAuditDirectoryPattern)
+	if err != nil {
+		return Settings{}, nil, fmt.Errorf("create temporary network audit directory: %w", err)
+	}
+	cleanup := func() error {
+		// #nosec G703 -- The directory was created by agbx in its private network proxy state.
+		return os.RemoveAll(directory)
+	}
+	settings, err := Setup(&config.AuditConfig{
+		LogDirectory: directory,
+		Redact:       redaction,
+	}, nil)
+	if err != nil {
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
+
+		return Settings{}, nil, err
+	}
+
+	return settings, cleanup, nil
 }
 
 func configureAudit(settings *Settings, audit config.AuditConfig) error {

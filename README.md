@@ -214,6 +214,30 @@ When no policy is configured, networking keeps its existing behavior. Policy
 enforcement is performed by the HTTP(S) proxy; it does not claim to be a
 general-purpose firewall for protocols that do not use the proxy, DNS, or QUIC.
 
+### Learn network destinations
+
+Use `network learn` to run a provider with temporary audit logging and print a
+suggested provider allowlist after the provider exits:
+
+```sh
+agbx network learn claude
+```
+
+The command intentionally ignores the configured network policy while learning,
+so it can observe all HTTP(S) and WebSocket destinations. It applies configured
+`network.audit.redact` settings, removes its temporary flow files after reading
+them, and never changes `.agbx.yaml`.
+
+The generated `providers.<name>.network.allow` snippet must be merged into a
+configuration that already has a global policy. For a new restrictive policy,
+start with:
+
+```yaml
+network:
+  policy:
+    default: deny
+```
+
 ### Network audit
 
 To capture outgoing HTTP(S) requests and responses, enable a network audit and

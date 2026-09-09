@@ -8,6 +8,7 @@ import (
 	"github.com/pixel365/agbx/cmd/internal/check"
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/cmd/internal/initcommand"
+	"github.com/pixel365/agbx/cmd/internal/networklearn"
 	"github.com/pixel365/agbx/cmd/internal/prepare"
 	"github.com/pixel365/agbx/cmd/internal/run"
 	"github.com/pixel365/agbx/cmd/internal/version"
@@ -68,6 +69,9 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 		}, providers),
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
+			return newDockerClient()
+		}, providers),
+		networklearn.NewNetworkCommand(func() (run.DockerClient, error) {
 			return newDockerClient()
 		}, providers),
 	)

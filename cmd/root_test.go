@@ -127,6 +127,16 @@ func TestRootCommandShowsProviderHelp(t *testing.T) {
 	assert.Contains(t, out.String(), "Run a provider in the configured container")
 }
 
+func TestRootCommandShowsNetworkLearnHelp(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommand(availableDockerClientFactory)
+	cmd.SetArgs([]string{"help", "network", "learn"})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "Observe network destinations used by a provider")
+}
+
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
 	changeWorkingDirectory(t, t.TempDir())
 

@@ -115,6 +115,22 @@ func TestSetupCreatesPolicyScriptWithoutAudit(t *testing.T) {
 	assert.Contains(t, string(contents), "ipaddress.ip_address(host.strip(\"[]\"))")
 }
 
+func TestSetupTemporaryAuditCleansUpFlows(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(stateHomeEnvironmentVariable, stateHome)
+
+	settings, cleanup, err := SetupTemporaryAudit(config.AuditRedaction{
+		Headers: []string{redactedHeader},
+	})
+
+	require.NoError(t, err)
+	assert.DirExists(t, settings.LogDirectory)
+	assert.FileExists(t, settings.RedactionScriptPath)
+
+	require.NoError(t, cleanup())
+	assert.NoDirExists(t, filepath.Dir(settings.LogDirectory))
+}
+
 func TestCleanupRunDirectoriesKeepsNewestRuns(t *testing.T) {
 	logDirectory := t.TempDir()
 	now := time.Date(2026, time.September, 7, 15, 0, 0, 0, time.UTC)
