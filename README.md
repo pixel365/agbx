@@ -226,7 +226,9 @@ agbx network learn claude
 The command intentionally ignores the configured network policy while learning,
 so it can observe all HTTP(S) and WebSocket destinations. It applies configured
 `network.audit.redact` settings, removes its temporary flow files after reading
-them, and never changes `.agbx.yaml`.
+them, and never changes `.agbx.yaml`. If the provider exits with an error after
+producing flows, the command still prints its suggestion and returns the
+provider error.
 
 The generated `providers.<name>.network.allow` snippet must be merged into a
 configuration that already has a global policy. For a new restrictive policy,
@@ -294,6 +296,7 @@ used by a provider before adopting a strict `default: deny` policy.
 | `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
 | `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
 | `agbx prepare <provider> [--force]`  | Prebuild an image; `--force` rebuilds an existing one.           |
+| `agbx network learn <provider>`      | Observe destinations and print a suggested provider allowlist.   |
 | `agbx <provider> [arguments...]`     | Start a provider, preparing its image when needed.                |
 | `agbx version [-v]`                  | Print version metadata.                                          |
 
@@ -309,6 +312,6 @@ Makefile provides common development commands; run `make help` to list them.
 
 See [SECURITY.md](.github/SECURITY.md) for vulnerability reporting and release
 verification instructions. All containers disable privilege escalation. Normal
-provider runs also drop all Linux capabilities. A network-audited provider starts
-as root to install the audit proxy's CA, then drops to the configured user and
+provider runs also drop all Linux capabilities. A network-proxied provider starts
+as root to install the network proxy's CA, then drops to the configured user and
 clears all Linux capability sets before starting the agent.

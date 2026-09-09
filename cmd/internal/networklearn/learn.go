@@ -99,16 +99,16 @@ func learnProvider(
 			}, nil
 		},
 	)
-	if resultErr != nil {
+	if settings.LogDirectory == "" {
 		return resultErr
 	}
 
 	destinations, err := readDestinations(settings.LogDirectory)
 	if err != nil {
-		return err
+		return errors.Join(resultErr, err)
 	}
 
-	return writeSuggestion(cmd, selectedProvider.Name(), destinations)
+	return errors.Join(resultErr, writeSuggestion(cmd, selectedProvider.Name(), destinations))
 }
 
 func auditRedaction(configuration config.Config) config.AuditRedaction {

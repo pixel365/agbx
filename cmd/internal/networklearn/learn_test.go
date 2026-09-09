@@ -3,6 +3,7 @@ package networklearn
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,9 @@ import (
 
 const (
 	learnProviderName = "claude"
+	learnCommandName  = "learn"
 	learnConfig       = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n"
+	learnRunError     = "provider exited with status 1"
 	learnFlows        = `{"log":{"entries":[` +
 		`{"request":{"url":"https://github.com/"}},` +
 		`{"request":{"url":"https://api.example.com/v1"}}]}}`
@@ -42,7 +45,9 @@ func TestLearnCommandPrintsSuggestedProviderPolicy(t *testing.T) {
 	}, providers)
 	output := &bytes.Buffer{}
 	command.SetOut(output)
-	command.SetArgs([]string{"learn", learnProviderName, "--prompt", "describe this project"})
+	command.SetArgs(
+		[]string{learnCommandName, learnProviderName, "--prompt", "describe this project"},
+	)
 
 	require.NoError(t, command.ExecuteContext(t.Context()))
 	assert.Equal(
@@ -65,14 +70,45 @@ func TestLearnCommandRejectsUnknownProvider(t *testing.T) {
 	command := NewNetworkCommand(func() (run.DockerClient, error) {
 		return &learnDockerClient{}, nil
 	}, provider.NewRegistry())
-	command.SetArgs([]string{"learn", "unknown"})
+	command.SetArgs([]string{learnCommandName, "unknown"})
 
 	err := command.ExecuteContext(t.Context())
 
 	require.EqualError(t, err, `provider "unknown" is not supported`)
 }
 
+func TestLearnCommandPrintsSuggestionAfterProviderError(t *testing.T) {
+	directory := t.TempDir()
+	changeWorkingDirectory(t, directory)
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(directory, ".agbx.yaml"), []byte(learnConfig), 0o600),
+	)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	providers := provider.NewRegistry()
+	require.NoError(t, providers.Register(learnTestProvider{}))
+	dockerClient := &learnDockerClient{
+		hasImage: true,
+		runError: errors.New(learnRunError),
+	}
+	command := NewNetworkCommand(func() (run.DockerClient, error) {
+		return dockerClient, nil
+	}, providers)
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{learnCommandName, learnProviderName})
+
+	err := command.ExecuteContext(t.Context())
+
+	require.ErrorIs(t, err, dockerClient.runError)
+	assert.Contains(t, output.String(), "Observed network destinations:")
+	assert.Contains(t, output.String(), "Suggested provider policy:")
+}
+
 type learnDockerClient struct {
+	runError error
 	request  docker.RunRequest
 	hasImage bool
 	closed   bool
@@ -89,11 +125,16 @@ func (c *learnDockerClient) Build(_ context.Context, _ docker.BuildRequest) erro
 func (c *learnDockerClient) Run(_ context.Context, request docker.RunRequest) error {
 	c.request = request
 
-	return os.WriteFile(
+	err := os.WriteFile(
 		filepath.Join(request.NetworkProxy.LogDirectory, flowsFileName),
 		[]byte(learnFlows),
 		0o600,
 	)
+	if err != nil {
+		return err
+	}
+
+	return c.runError
 }
 
 func (c *learnDockerClient) Close() error {
