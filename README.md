@@ -1,7 +1,7 @@
 # agbx
 
-`agbx` runs coding agents in isolated Docker containers while keeping the
-current project directory available as the agent workspace.
+`agbx` (Agent Box) runs coding agents in isolated Docker containers while
+keeping the current project directory available as the agent workspace.
 
 Supported providers are [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 and [Codex](https://learn.chatgpt.com/docs/codex/cli). The project is
