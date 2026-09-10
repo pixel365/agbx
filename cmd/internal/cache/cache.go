@@ -35,7 +35,10 @@ func NewCacheCommand(
 	command := &cobra.Command{
 		Use:   "cache",
 		Short: "Inspect local agbx cache",
-		Args:  cobra.NoArgs,
+		Long: "Inspect prepared provider images stored by Docker. Use cache list to see the " +
+			"images associated with the selected project and other AGBX images on the host.",
+		Example: "  agbx cache list",
+		Args:    cobra.NoArgs,
 	}
 	command.AddCommand(NewListCommand(newDockerClient, providers))
 
@@ -46,7 +49,13 @@ func NewListCommand(newDockerClient DockerClientFunc, providers *provider.Regist
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List prepared images for the current project",
-		Args:  cobra.NoArgs,
+		Long: "List prepared images associated with the selected project. Current images match " +
+			"the active configuration; historical images were previously selected for the project. " +
+			"Legacy images were created before image labels were introduced, and unattributed images " +
+			"belong to another or an unknown project.",
+		Example: "  agbx cache list\n" +
+			"  agbx --config /path/to/.agbx.yaml cache list",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return listImages(cmd, newDockerClient, providers)
 		},

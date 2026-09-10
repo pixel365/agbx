@@ -80,6 +80,14 @@ func TestRegistryListsProvidersByName(t *testing.T) {
 	assert.Equal(t, []Provider{secondProvider, firstProvider}, registry.All())
 }
 
+func TestHelpForProviderWithoutDocumentation(t *testing.T) {
+	help := HelpFor(testProvider{name: providerName})
+
+	assert.Equal(t, "Run claude in the configured container", help.Short)
+	assert.Contains(t, help.Long, "Arguments are passed through")
+	assert.Equal(t, "  agbx claude", help.Example)
+}
+
 func TestBuildRecipePreparedImageReference(t *testing.T) {
 	image := config.Image{Name: imageName, Tag: imageTag, Digest: imageDigest}
 	recipe := BuildRecipe{Dockerfile: exampleDockerfile}

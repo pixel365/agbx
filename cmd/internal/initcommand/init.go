@@ -12,7 +12,11 @@ import (
 
 func NewInitCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "init",
+		Use:   "init",
+		Short: "Create an agbx configuration file in the current directory",
+		Long: "Interactively create .agbx.yaml in the current directory. This command always " +
+			"uses the current directory and does not accept --config.",
+		Example: "  agbx init",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cmd.Root().PersistentFlags().Changed("config") {
 				return errors.New("--config cannot be used with init")

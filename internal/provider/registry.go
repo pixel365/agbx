@@ -21,6 +21,32 @@ type Provider interface {
 	Name() string
 }
 
+type Help struct {
+	Example string
+	Long    string
+	Short   string
+}
+
+type HelpProvider interface {
+	Help() Help
+}
+
+func HelpFor(selectedProvider Provider) Help {
+	if documentedProvider, ok := selectedProvider.(HelpProvider); ok {
+		return documentedProvider.Help()
+	}
+
+	providerName := selectedProvider.Name()
+
+	return Help{
+		Short: "Run " + providerName + " in the configured container",
+		Long: "Run the provider in the prepared project environment. Arguments are passed " +
+			"through to the provider without being parsed by agbx. Place global flags before " +
+			"the provider name, for example: agbx --config /path/to/.agbx.yaml " + providerName + ".",
+		Example: "  agbx " + providerName,
+	}
+}
+
 type Registry struct {
 	providers map[string]Provider
 }

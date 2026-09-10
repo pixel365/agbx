@@ -31,7 +31,12 @@ func NewCheckCommand(
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Validate the configuration and Docker daemon",
-		Args:  cobra.NoArgs,
+		Long: "Validate the selected agbx configuration and verify that the Docker daemon is " +
+			"available. Use --verbose to also show the prepared-image status of each provider.",
+		Example: "  agbx check\n" +
+			"  agbx check --verbose\n" +
+			"  agbx --config /path/to/.agbx.yaml check",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			configuration, err := commandconfig.Load(cmd)
 			if err != nil {

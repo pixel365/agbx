@@ -19,7 +19,11 @@ func NewVersionCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version",
-		Args:  cobra.NoArgs,
+		Long: "Print the agbx version. Use --verbose to include the commit, release date, Go " +
+			"version, and platform.",
+		Example: "  agbx version\n" +
+			"  agbx version --verbose",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !verbose {
 				_, err := fmt.Fprintln(cmd.OutOrStdout(), version)

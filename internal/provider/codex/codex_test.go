@@ -67,3 +67,10 @@ func TestProviderDockerfileUsesDeviceAuthentication(t *testing.T) {
 	assert.Contains(t, dockerfile, "codex login status > /dev/null 2>&1")
 	assert.Contains(t, dockerfile, "codex login --device-auth")
 }
+
+func TestProviderHelp(t *testing.T) {
+	help := New().Help()
+
+	assert.Equal(t, "Run Codex in the configured container", help.Short)
+	assert.Contains(t, help.Example, "agbx codex login --device-auth")
+}

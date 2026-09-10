@@ -45,3 +45,10 @@ func TestProviderCommandAddsAdditionalMountDirectory(t *testing.T) {
 		command,
 	)
 }
+
+func TestProviderHelp(t *testing.T) {
+	help := New().Help()
+
+	assert.Equal(t, "Run Claude Code in the configured container", help.Short)
+	assert.Contains(t, help.Example, "agbx claude -p")
+}

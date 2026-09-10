@@ -27,6 +27,19 @@ func (Provider) Name() string {
 	return name
 }
 
+func (Provider) Help() provider.Help {
+	return provider.Help{
+		Short: "Run Codex in the configured container",
+		Long: "Run Codex in the prepared project environment. Arguments are passed through " +
+			"unchanged to Codex. Place agbx global flags before the provider name. Use agbx " +
+			"help codex for launcher help, or agbx codex --help for Codex help inside the " +
+			"container.",
+		Example: "  agbx codex\n" +
+			"  agbx codex \"Describe this project\"\n" +
+			"  agbx codex login --device-auth",
+	}
+}
+
 func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
 	return provider.NewBuildRecipe(image, dockerfile, bubblewrap), nil
 }

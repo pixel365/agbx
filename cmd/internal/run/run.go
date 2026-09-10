@@ -41,9 +41,13 @@ func NewProviderCommand(
 	newDockerClient DockerClientFunc,
 	selectedProvider provider.Provider,
 ) *cobra.Command {
+	help := provider.HelpFor(selectedProvider)
+
 	return &cobra.Command{
 		Use:                selectedProvider.Name() + " [arguments...]",
-		Short:              "Run a provider in the configured container",
+		Short:              help.Short,
+		Long:               help.Long,
+		Example:            help.Example,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

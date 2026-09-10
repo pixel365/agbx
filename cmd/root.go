@@ -29,6 +29,14 @@ type dockerClient interface {
 
 type dockerClientFunc func() (dockerClient, error)
 
+const (
+	gettingStartedGroup       = "getting-started"
+	providerEnvironmentsGroup = "provider-environments"
+	networkGroup              = "network"
+	providersGroup            = "providers"
+	informationGroup          = "information"
+)
+
 func NewRootCommand() *cobra.Command {
 	return newRootCommand(newDockerClient)
 }
@@ -38,8 +46,23 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 	providers := mustProviderRegistry()
 
 	cmd := &cobra.Command{
-		Use: "agbx",
+		Use:   "agbx",
+		Short: "Run coding agents in isolated project environments",
+		Long: "AGBX prepares reproducible Docker environments for coding agents. It mounts the " +
+			"current project into an isolated container and can control mounts, network access, " +
+			"and provider state.",
+		Example: "  agbx init\n" +
+			"  agbx check --verbose\n" +
+			"  agbx claude\n" +
+			"  agbx --config /path/to/.agbx.yaml codex",
 	}
+	cmd.AddGroup(
+		&cobra.Group{ID: gettingStartedGroup, Title: "Getting started:"},
+		&cobra.Group{ID: providerEnvironmentsGroup, Title: "Provider environments:"},
+		&cobra.Group{ID: networkGroup, Title: "Network access:"},
+		&cobra.Group{ID: providersGroup, Title: "Providers:"},
+		&cobra.Group{ID: informationGroup, Title: "Information:"},
+	)
 
 	cmd.PersistentFlags().StringVar(
 		&configFile,
@@ -64,26 +87,46 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 		return err
 	}
 
+	initCommand := initcommand.NewInitCommand()
+	initCommand.GroupID = gettingStartedGroup
+
+	checkCommand := check.NewCheckCommand(func() (check.DockerClient, error) {
+		return newDockerClient()
+	}, providers)
+	checkCommand.GroupID = gettingStartedGroup
+
+	prepareCommand := prepare.NewPrepareCommand(func() (prepare.DockerClient, error) {
+		return newDockerClient()
+	}, providers)
+	prepareCommand.GroupID = providerEnvironmentsGroup
+
+	cacheCommand := cache.NewCacheCommand(func() (cache.DockerClient, error) {
+		return newDockerClient()
+	}, providers)
+	cacheCommand.GroupID = providerEnvironmentsGroup
+
+	networkCommand := networklearn.NewNetworkCommand(func() (run.DockerClient, error) {
+		return newDockerClient()
+	}, providers)
+	networkCommand.GroupID = networkGroup
+
+	versionCommand := version.NewVersionCommand()
+	versionCommand.GroupID = informationGroup
+
 	cmd.AddCommand(
-		initcommand.NewInitCommand(),
-		prepare.NewPrepareCommand(func() (prepare.DockerClient, error) {
-			return newDockerClient()
-		}, providers),
-		version.NewVersionCommand(),
-		check.NewCheckCommand(func() (check.DockerClient, error) {
-			return newDockerClient()
-		}, providers),
-		cache.NewCacheCommand(func() (cache.DockerClient, error) {
-			return newDockerClient()
-		}, providers),
-		networklearn.NewNetworkCommand(func() (run.DockerClient, error) {
-			return newDockerClient()
-		}, providers),
+		initCommand,
+		prepareCommand,
+		versionCommand,
+		checkCommand,
+		cacheCommand,
+		networkCommand,
 	)
 	for _, registeredProvider := range providers.All() {
-		cmd.AddCommand(run.NewProviderCommand(func() (run.DockerClient, error) {
+		providerCommand := run.NewProviderCommand(func() (run.DockerClient, error) {
 			return newDockerClient()
-		}, registeredProvider))
+		}, registeredProvider)
+		providerCommand.GroupID = providersGroup
+		cmd.AddCommand(providerCommand)
 	}
 
 	return cmd

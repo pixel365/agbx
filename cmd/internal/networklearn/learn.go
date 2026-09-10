@@ -25,7 +25,10 @@ func NewNetworkCommand(
 	command := &cobra.Command{
 		Use:   "network",
 		Short: "Manage provider network access",
-		Args:  cobra.NoArgs,
+		Long: "Manage the network controls applied to providers. Use network learn to observe " +
+			"the destinations used by a provider and generate an allowlist suggestion.",
+		Example: "  agbx network learn claude",
+		Args:    cobra.NoArgs,
 	}
 	command.AddCommand(NewLearnCommand(newDockerClient, providers))
 
@@ -37,8 +40,14 @@ func NewLearnCommand(
 	providers *provider.Registry,
 ) *cobra.Command {
 	return &cobra.Command{
-		Use:                "learn <provider> [arguments...]",
-		Short:              "Observe network destinations used by a provider",
+		Use:   "learn <provider> [arguments...]",
+		Short: "Observe network destinations used by a provider",
+		Long: "Run a provider with temporary network audit logging and print a suggested provider " +
+			"allowlist after it exits. The configured network policy is ignored while learning; " +
+			"temporary audit data is removed after the suggestion is printed. Arguments after the " +
+			"provider name are passed through to the provider.",
+		Example: "  agbx network learn claude\n" +
+			"  agbx network learn codex \"Review this repository\"",
 		Args:               cobra.MinimumNArgs(1),
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -30,7 +30,12 @@ func NewPrepareCommand(
 	cmd := &cobra.Command{
 		Use:   "prepare <provider>",
 		Short: "Prepare a provider environment",
-		Args:  cobra.ExactArgs(1),
+		Long: "Build the configured provider image before starting an agent. Prepared images " +
+			"are content-addressed and reused until the base image, provider setup, or Dockerfile " +
+			"fragments change. Use --force to rebuild the current image explicitly.",
+		Example: "  agbx prepare claude\n" +
+			"  agbx prepare codex --force",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return prepareProvider(cmd, args[0], force, newDockerClient, providers)
 		},

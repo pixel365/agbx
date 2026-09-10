@@ -24,6 +24,19 @@ func (Provider) Name() string {
 	return name
 }
 
+func (Provider) Help() provider.Help {
+	return provider.Help{
+		Short: "Run Claude Code in the configured container",
+		Long: "Run Claude Code in the prepared project environment. Arguments are passed " +
+			"through unchanged to Claude Code. Place agbx global flags before the provider " +
+			"name. Use agbx help claude for launcher help, or agbx claude --help for Claude " +
+			"Code help inside the container.",
+		Example: "  agbx claude\n" +
+			"  agbx claude -p \"Review the current changes\"\n" +
+			"  agbx --config /path/to/.agbx.yaml claude",
+	}
+}
+
 func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
 	return provider.NewBuildRecipe(image, dockerfile), nil
 }

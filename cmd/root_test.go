@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -125,7 +126,39 @@ func TestRootCommandShowsProviderHelp(t *testing.T) {
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
-	assert.Contains(t, out.String(), "Run a provider in the configured container")
+	assert.Contains(t, out.String(), "Run Claude Code in the prepared project environment")
+	assert.Contains(t, out.String(), "agbx claude -p")
+}
+
+func TestRootCommandShowsGroupedHelp(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommand(availableDockerClientFactory)
+	cmd.SetArgs([]string{helpCommand})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "Getting started:")
+	assert.Contains(t, out.String(), "Provider environments:")
+	assert.Contains(t, out.String(), "Network access:")
+	assert.Contains(t, out.String(), "Providers:")
+	assert.Contains(t, out.String(), "Information:")
+	assert.Contains(t, out.String(), "agbx claude")
+}
+
+func TestRootCommandsDescribeThemselves(t *testing.T) {
+	assertCommandHelp(t, newRootCommand(availableDockerClientFactory))
+}
+
+func assertCommandHelp(t *testing.T, command *cobra.Command) {
+	t.Helper()
+	if command.Name() != helpCommand {
+		assert.NotEmpty(t, command.Short, command.CommandPath())
+		assert.NotEmpty(t, command.Long, command.CommandPath())
+		assert.NotEmpty(t, command.Example, command.CommandPath())
+	}
+	for _, childCommand := range command.Commands() {
+		assertCommandHelp(t, childCommand)
+	}
 }
 
 func TestRootCommandShowsNetworkLearnHelp(t *testing.T) {
@@ -135,7 +168,8 @@ func TestRootCommandShowsNetworkLearnHelp(t *testing.T) {
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
-	assert.Contains(t, out.String(), "Observe network destinations used by a provider")
+	assert.Contains(t, out.String(), "Run a provider with temporary network audit logging")
+	assert.Contains(t, out.String(), "agbx network learn claude")
 }
 
 func TestRootCommandShowsCacheListHelp(t *testing.T) {
@@ -145,7 +179,8 @@ func TestRootCommandShowsCacheListHelp(t *testing.T) {
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
-	assert.Contains(t, out.String(), "List prepared images for the current project")
+	assert.Contains(t, out.String(), "List prepared images associated with the selected project")
+	assert.Contains(t, out.String(), "agbx cache list")
 }
 
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
