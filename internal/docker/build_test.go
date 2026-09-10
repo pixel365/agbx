@@ -47,3 +47,12 @@ func TestImageBuildArgs(t *testing.T) {
 
 	assert.Equal(t, "example/image:1.0", *buildArgs["BASE_IMAGE"])
 }
+
+func TestImageBuildLabelsCopiesValues(t *testing.T) {
+	labels := map[string]string{"io.agbx.managed": "true"}
+
+	buildLabels := imageBuildLabels(labels)
+	labels["io.agbx.managed"] = "false"
+
+	assert.Equal(t, map[string]string{"io.agbx.managed": "true"}, buildLabels)
+}

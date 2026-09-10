@@ -20,6 +20,7 @@ import (
 const (
 	checkCommand   = "check"
 	configFlag     = "--config"
+	helpCommand    = "help"
 	validConfig    = "version: 1\nimage:\n  name: example/image\n  tag: latest\n"
 	versionCommand = "version"
 )
@@ -120,7 +121,7 @@ func TestRootCommandRunsProviderAtTopLevel(t *testing.T) {
 func TestRootCommandShowsProviderHelp(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommand(availableDockerClientFactory)
-	cmd.SetArgs([]string{"help", claude.New().Name()})
+	cmd.SetArgs([]string{helpCommand, claude.New().Name()})
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
@@ -130,11 +131,21 @@ func TestRootCommandShowsProviderHelp(t *testing.T) {
 func TestRootCommandShowsNetworkLearnHelp(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommand(availableDockerClientFactory)
-	cmd.SetArgs([]string{"help", "network", "learn"})
+	cmd.SetArgs([]string{helpCommand, "network", "learn"})
 	cmd.SetOut(&out)
 
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "Observe network destinations used by a provider")
+}
+
+func TestRootCommandShowsCacheListHelp(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommand(availableDockerClientFactory)
+	cmd.SetArgs([]string{helpCommand, "cache", "list"})
+	cmd.SetOut(&out)
+
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "List prepared images for the current project")
 }
 
 func TestRootCommandRejectsMissingDefaultConfigFile(t *testing.T) {
@@ -184,6 +195,10 @@ func (availableDockerClient) HasImage(context.Context, string) (bool, error) {
 	return true, nil
 }
 
+func (availableDockerClient) ListPreparedImages(context.Context) ([]docker.PreparedImage, error) {
+	return nil, nil
+}
+
 func availableDockerClientFactory() (dockerClient, error) {
 	return availableDockerClient{}, nil
 }
@@ -212,12 +227,17 @@ func (unavailableDockerClient) HasImage(context.Context, string) (bool, error) {
 	return true, nil
 }
 
+func (unavailableDockerClient) ListPreparedImages(context.Context) ([]docker.PreparedImage, error) {
+	return nil, nil
+}
+
 func unavailableDockerClientFactory() (dockerClient, error) {
 	return unavailableDockerClient{}, nil
 }
 
 func changeWorkingDirectory(t *testing.T, directory string) {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	previousDirectory, err := os.Getwd()
 	require.NoError(t, err)

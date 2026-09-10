@@ -111,6 +111,11 @@ func TestProviderCommandPreparesMissingImage(t *testing.T) {
 	assert.Equal(t, expectedRecipe.BuildArgs, dockerClient.buildRequest.BuildArgs)
 	assert.Equal(
 		t,
+		expectedRecipe.PreparedImageLabels(providerName, expectedImage),
+		dockerClient.buildRequest.Labels,
+	)
+	assert.Equal(
+		t,
 		expectedRecipe.PreparedImageReference(providerName, expectedImage),
 		dockerClient.buildRequest.Tag,
 	)
@@ -315,6 +320,7 @@ func (c *recordingDockerClient) Close() error {
 
 func changeWorkingDirectory(t *testing.T, directory string) {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	previousDirectory, err := os.Getwd()
 	require.NoError(t, err)

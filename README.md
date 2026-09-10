@@ -58,7 +58,10 @@ digest when possible.
 The first provider launch builds its image from the configured base image. It
 is cached locally; changing the base-image configuration or provider setup
 creates a new prepared image automatically. Use `agbx prepare <provider>` to
-prebuild it, or add `--force` to rebuild it explicitly.
+prebuild it, or add `--force` to rebuild it explicitly. Use `agbx cache list`
+to see the current project's prepared images and other AGBX images stored
+locally. Images created by earlier AGBX versions remain visible as legacy or
+unattributed until they are prepared or launched again.
 
 ### Built-in tools
 
@@ -301,14 +304,15 @@ used by a provider before adopting a strict `default: deny` policy.
 
 ## Commands
 
-| Command                              | Description                                                      |
-| ------------------------------------ | ---------------------------------------------------------------- |
-| `agbx init`                          | Interactively create `.agbx.yaml` in the current directory.      |
-| `agbx check [-v]`                    | Validate the configuration and check Docker daemon availability. |
-| `agbx prepare <provider> [--force]`  | Prebuild an image; `--force` rebuilds an existing one.           |
-| `agbx network learn <provider>`      | Observe destinations and print a suggested provider allowlist.   |
-| `agbx <provider> [arguments...]`     | Start a provider, preparing its image when needed.                |
-| `agbx version [-v]`                  | Print version metadata.                                          |
+| Command                                        | Description                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------------- |
+| `agbx init`                                    | Interactively create `.agbx.yaml` in the current directory.      |
+| `agbx check [-v]`                              | Validate the configuration and check Docker daemon availability. |
+| `agbx prepare <provider> [--force]`            | Prebuild an image; `--force` rebuilds an existing one.           |
+| `agbx cache list`                              | List prepared images associated with the current project.        |
+| `agbx network learn <provider> [arguments...]` | Observe destinations and print a suggested provider allowlist.   |
+| `agbx <provider> [arguments...]`               | Start a provider, preparing its image when needed.               |
+| `agbx version [-v]`                            | Print version metadata.                                          |
 
 Run `agbx <command> --help` for built-in command options, or
 `agbx help <provider>` for launcher help.

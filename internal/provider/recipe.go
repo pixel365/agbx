@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pixel365/agbx/internal/config"
+	"github.com/pixel365/agbx/internal/preparedimage"
 )
 
 const (
@@ -93,4 +94,11 @@ func (recipe BuildRecipe) PreparedImageReference(providerName string, image conf
 	}
 
 	return preparedImageRepository + "-" + providerName + ":" + hex.EncodeToString(hash.Sum(nil))
+}
+
+func (recipe BuildRecipe) PreparedImageLabels(
+	providerName string,
+	image config.Image,
+) map[string]string {
+	return preparedimage.Labels(providerName, recipe.PreparedImageReference(providerName, image))
 }

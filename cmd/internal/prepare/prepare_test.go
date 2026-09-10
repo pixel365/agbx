@@ -73,6 +73,11 @@ func TestPrepareCommandBuildsRegisteredProvider(t *testing.T) {
 	assert.Equal(t, expectedRecipe.BuildArgs, dockerClient.request.BuildArgs)
 	assert.Equal(
 		t,
+		expectedRecipe.PreparedImageLabels(providerName, expectedImage),
+		dockerClient.request.Labels,
+	)
+	assert.Equal(
+		t,
 		expectedRecipe.PreparedImageReference(providerName, expectedImage),
 		dockerClient.request.Tag,
 	)
@@ -176,6 +181,7 @@ func (*testProvider) Command([]string, []config.Mount) ([]string, error) {
 
 func changeWorkingDirectory(t *testing.T, directory string) {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	previousDirectory, err := os.Getwd()
 	require.NoError(t, err)

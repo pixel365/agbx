@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pixel365/agbx/cmd/internal/cache"
 	"github.com/pixel365/agbx/cmd/internal/check"
 	"github.com/pixel365/agbx/cmd/internal/commandconfig"
 	"github.com/pixel365/agbx/cmd/internal/initcommand"
@@ -20,6 +21,7 @@ import (
 )
 
 type dockerClient interface {
+	cache.DockerClient
 	check.DockerClient
 	prepare.DockerClient
 	run.DockerClient
@@ -69,6 +71,9 @@ func newRootCommand(newDockerClient dockerClientFunc) *cobra.Command {
 		}, providers),
 		version.NewVersionCommand(),
 		check.NewCheckCommand(func() (check.DockerClient, error) {
+			return newDockerClient()
+		}, providers),
+		cache.NewCacheCommand(func() (cache.DockerClient, error) {
 			return newDockerClient()
 		}, providers),
 		networklearn.NewNetworkCommand(func() (run.DockerClient, error) {

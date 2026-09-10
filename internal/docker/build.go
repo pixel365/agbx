@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 
 	"github.com/moby/moby/api/types/jsonstream"
 	mobyclient "github.com/moby/moby/client"
@@ -18,6 +19,7 @@ const dockerfileName = "Dockerfile"
 type BuildRequest struct {
 	Dockerfile string
 	BuildArgs  map[string]string
+	Labels     map[string]string
 	Output     io.Writer
 	Tag        string
 }
@@ -31,6 +33,7 @@ func (c *Client) Build(ctx context.Context, request BuildRequest) error {
 	build, err := c.api.ImageBuild(ctx, contextArchive, mobyclient.ImageBuildOptions{
 		BuildArgs:  imageBuildArgs(request.BuildArgs),
 		Dockerfile: dockerfileName,
+		Labels:     imageBuildLabels(request.Labels),
 		Remove:     true,
 		Tags:       []string{request.Tag},
 	})
@@ -55,6 +58,17 @@ func imageBuildArgs(arguments map[string]string) map[string]*string {
 	}
 
 	return buildArgs
+}
+
+func imageBuildLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(labels))
+	maps.Copy(result, labels)
+
+	return result
 }
 
 func buildContext(dockerfile string) (*bytes.Reader, error) {

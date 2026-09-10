@@ -2,8 +2,7 @@ package run
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +16,8 @@ import (
 	"github.com/pixel365/agbx/internal/config"
 	"github.com/pixel365/agbx/internal/docker"
 	"github.com/pixel365/agbx/internal/networkproxy"
+	"github.com/pixel365/agbx/internal/preparedcache"
+	"github.com/pixel365/agbx/internal/project"
 	"github.com/pixel365/agbx/internal/provider"
 )
 
@@ -97,6 +98,7 @@ func RunProvider(
 	if err := ensureProviderImage(
 		cmd.Context(),
 		dockerClient,
+		configuration.Image,
 		recipe,
 		imageReference,
 		selectedProvider.Name(),
@@ -126,7 +128,7 @@ func RunProvider(
 		return err
 	}
 
-	return dockerClient.Run(cmd.Context(), docker.RunRequest{
+	runErr := dockerClient.Run(cmd.Context(), docker.RunRequest{
 		Command:            command,
 		Image:              imageReference,
 		Input:              cmd.InOrStdin(),
@@ -139,11 +141,21 @@ func RunProvider(
 		WorkingDirectory:   workingDirectory,
 		WorkspaceDirectory: containerWorkspaceDirectory,
 	})
+	if err := preparedcache.Record(
+		loadedConfig.FilePath,
+		selectedProvider.Name(),
+		imageReference,
+	); err != nil {
+		return errors.Join(runErr, fmt.Errorf("record prepared image %q: %w", imageReference, err))
+	}
+
+	return runErr
 }
 
 func ensureProviderImage(
 	ctx context.Context,
 	dockerClient DockerClient,
+	image config.Image,
 	recipe provider.BuildRecipe,
 	imageReference string,
 	providerName string,
@@ -159,6 +171,7 @@ func ensureProviderImage(
 	if err := dockerClient.Build(ctx, docker.BuildRequest{
 		Dockerfile: recipe.Dockerfile,
 		BuildArgs:  recipe.BuildArgs,
+		Labels:     recipe.PreparedImageLabels(providerName, image),
 		Output:     output,
 		Tag:        imageReference,
 	}); err != nil {
@@ -236,23 +249,12 @@ func providerStateDirectory(providerName string) (string, error) {
 }
 
 func projectWorkspaceDirectory(configFile string) (string, error) {
-	projectIdentifier, err := projectID(configFile)
+	projectIdentifier, err := project.ID(configFile)
 	if err != nil {
 		return "", err
 	}
 
 	return path.Join(workspaceDirectory, projectIdentifier), nil
-}
-
-func projectID(configFile string) (string, error) {
-	resolvedPath, err := filepath.EvalSymlinks(configFile)
-	if err != nil {
-		return "", fmt.Errorf("resolve config path %q: %w", configFile, err)
-	}
-
-	digest := sha256.Sum256([]byte(filepath.Clean(resolvedPath)))
-
-	return hex.EncodeToString(digest[:]), nil
 }
 
 func isProviderNamePathComponent(name string) bool {

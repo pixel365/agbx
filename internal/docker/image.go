@@ -2,10 +2,14 @@ package docker
 
 import (
 	"context"
+	"slices"
 	"sort"
+	"time"
 
 	"github.com/distribution/reference"
 	mobyclient "github.com/moby/moby/client"
+
+	"github.com/pixel365/agbx/internal/preparedimage"
 )
 
 const imageSearchLimit = 25
@@ -14,6 +18,16 @@ type Image struct {
 	Name   string
 	Tag    string
 	Digest string
+}
+
+type PreparedImage struct {
+	CreatedAt time.Time
+	ImageID   string
+	Reference string
+	Provider  string
+	Size      int64
+	Tagged    bool
+	Legacy    bool
 }
 
 type SearchResult struct {
@@ -42,6 +56,59 @@ func (c *Client) ListImages(ctx context.Context) ([]Image, error) {
 		}
 
 		return images[i].Name < images[j].Name
+	})
+
+	return images, nil
+}
+
+func (c *Client) ListPreparedImages(ctx context.Context) ([]PreparedImage, error) {
+	result, err := c.api.ImageList(ctx, mobyclient.ImageListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+
+	images := make([]PreparedImage, 0)
+	for imageIndex := range result.Items {
+		image := &result.Items[imageIndex]
+		if providerName, imageReference, ok := preparedimage.FromLabels(image.Labels); ok {
+			images = append(images, PreparedImage{
+				CreatedAt: time.Unix(image.Created, 0),
+				ImageID:   image.ID,
+				Reference: imageReference,
+				Provider:  providerName,
+				Size:      image.Size,
+				Tagged:    hasReference(image.RepoTags, imageReference),
+			})
+
+			continue
+		}
+
+		for _, imageReference := range image.RepoTags {
+			providerName, ok := preparedimage.ParseReference(imageReference)
+			if !ok {
+				continue
+			}
+			images = append(images, PreparedImage{
+				CreatedAt: time.Unix(image.Created, 0),
+				ImageID:   image.ID,
+				Reference: imageReference,
+				Provider:  providerName,
+				Size:      image.Size,
+				Tagged:    true,
+				Legacy:    true,
+			})
+		}
+	}
+	sort.Slice(images, func(i, j int) bool {
+		if images[i].Provider == images[j].Provider {
+			if images[i].Reference == images[j].Reference {
+				return images[i].ImageID < images[j].ImageID
+			}
+
+			return images[i].Reference < images[j].Reference
+		}
+
+		return images[i].Provider < images[j].Provider
 	})
 
 	return images, nil
@@ -110,4 +177,8 @@ func imageFromReference(imageReference string, repositoryDigests []string) (Imag
 	}
 
 	return image, true
+}
+
+func hasReference(references []string, imageReference string) bool {
+	return slices.Contains(references, imageReference)
 }
