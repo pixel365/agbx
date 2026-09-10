@@ -100,7 +100,9 @@ SDKs, databases, or other specialized tools.
 By default, a provider command starts its prepared image interactively. The
 current directory is mounted read-write at a stable, configuration-specific path
 below `/workspace`; provider authentication state is shared between projects
-under `${XDG_DATA_HOME:-~/.local/share}/agbx/providers`.
+under `${XDG_DATA_HOME:-~/.local/share}/agbx/providers`. A provider and the
+commands it executes can read all files available to its container user,
+including its shared provider state and authentication data.
 
 ## Configuration
 
@@ -185,10 +187,11 @@ additional working directory. This lets Claude discover mounted instructions
 and skills. Provider-specific mounts are combined with shared mounts only for
 that provider.
 
-For Codex, `/agbx` is passed through `--add-dir`, and Codex runs with its
-`workspace-write` sandbox profile. This grants access to the additional
-directory alongside the main workspace; Docker still enforces the configured
-read-only mount permissions.
+For Codex, `/agbx` is passed through `--add-dir`. Codex runs with
+`danger-full-access` inside the AGBX container because its nested
+`bubblewrap` sandbox requires user namespaces that are not available in every
+Docker environment. The AGBX container remains the security boundary and
+enforces the configured read-only mount permissions.
 
 On the first `agbx codex`, Codex uses device authentication: open the
 displayed link on the host and enter its one-time code. This avoids the browser
@@ -199,7 +202,7 @@ Arguments after a provider name are passed through unchanged, including flags:
 
 ```sh
 agbx claude --dangerously-skip-permissions
-agbx codex --full-auto
+agbx codex --no-alt-screen
 ```
 
 For a one-off prompt, use each provider's non-interactive mode. Codex also
@@ -334,7 +337,7 @@ used by a provider before adopting a strict `default: deny` policy.
 | `agbx check [-v]`                              | Validate the configuration and check Docker daemon availability. |
 | `agbx prepare <provider> [--force]`            | Prebuild an image; `--force` rebuilds an existing one.           |
 | `agbx cache list`                              | List prepared images associated with the current project.        |
-| `agbx cache prune [--apply]`                   | Review or remove unused historical prepared images.               |
+| `agbx cache prune [--apply]`                   | Review or remove unused historical prepared images.              |
 | `agbx network learn <provider> [arguments...]` | Observe destinations and print a suggested provider allowlist.   |
 | `agbx <provider> [arguments...]`               | Start a provider, preparing its image when needed.               |
 | `agbx version [-v]`                            | Print version metadata.                                          |

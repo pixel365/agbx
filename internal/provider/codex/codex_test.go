@@ -25,14 +25,18 @@ func TestProviderBuildRecipe(t *testing.T) {
 	recipe, err := New().BuildRecipe(image)
 
 	require.NoError(t, err)
-	assert.Equal(t, provider.NewBuildRecipe(image, dockerfile, bubblewrap), recipe)
+	assert.Equal(t, provider.NewBuildRecipe(image, dockerfile), recipe)
 }
 
 func TestProviderCommand(t *testing.T) {
 	command, err := New().Command([]string{helpArgument}, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{binaryName, "--sandbox", "workspace-write", helpArgument}, command)
+	assert.Equal(
+		t,
+		[]string{binaryName, sandboxFlag, "danger-full-access", helpArgument},
+		command,
+	)
 }
 
 func TestProviderCommandAddsAdditionalMountDirectory(t *testing.T) {
@@ -46,8 +50,8 @@ func TestProviderCommandAddsAdditionalMountDirectory(t *testing.T) {
 		t,
 		[]string{
 			binaryName,
-			"--sandbox",
-			"workspace-write",
+			sandboxFlag,
+			sandboxMode,
 			"--add-dir",
 			config.AdditionalMountDirectory,
 			helpArgument,

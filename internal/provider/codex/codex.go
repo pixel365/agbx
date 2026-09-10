@@ -11,7 +11,8 @@ const (
 	name          = "codex"
 	loginCommand  = "login"
 	logoutCommand = "logout"
-	bubblewrap    = "bubblewrap"
+	sandboxFlag   = "--sandbox"
+	sandboxMode   = "danger-full-access"
 )
 
 //go:embed Dockerfile
@@ -41,7 +42,7 @@ func (Provider) Help() provider.Help {
 }
 
 func (Provider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
-	return provider.NewBuildRecipe(image, dockerfile, bubblewrap), nil
+	return provider.NewBuildRecipe(image, dockerfile), nil
 }
 
 func (Provider) Command(args []string, mounts []config.Mount) ([]string, error) {
@@ -50,7 +51,7 @@ func (Provider) Command(args []string, mounts []config.Mount) ([]string, error) 
 		return append(command, args...), nil
 	}
 
-	command = append(command, "--sandbox", "workspace-write")
+	command = append(command, sandboxFlag, sandboxMode)
 	if len(mounts) > 0 {
 		command = append(command, "--add-dir", config.AdditionalMountDirectory)
 	}
