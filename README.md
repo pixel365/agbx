@@ -1,5 +1,13 @@
 # agbx
 
+Run coding agents in isolated, reproducible Docker project environments with
+controlled mounts and observable HTTP(S) egress.
+
+[![CI](https://github.com/pixel365/agbx/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/pixel365/agbx/actions/workflows/go.yml)
+[Releases](https://github.com/pixel365/agbx/releases/latest) ·
+[Security](.github/SECURITY.md) ·
+[Contributing](CONTRIBUTING.md)
+
 `agbx` (Agent Box) runs coding agents in isolated Docker containers while
 keeping the current project directory available as the agent workspace.
 
@@ -7,6 +15,15 @@ Supported providers are [Claude Code](https://docs.anthropic.com/en/docs/claude-
 and [Codex](https://learn.chatgpt.com/docs/codex/cli). The project is
 intentionally small and configuration-driven, so additional providers and setup
 steps can be added without changing the workflow.
+
+## Why agbx?
+
+- **Isolated workspace** — the host project and explicitly configured mounts
+  are available to an agent inside its prepared container.
+- **Reproducible tooling** — the configured base image, provider setup, and
+  optional Dockerfile fragments determine the prepared environment.
+- **Observable egress** — audit proxied HTTP(S) traffic or apply global and
+  provider-specific hostname policies.
 
 ## Requirements
 
@@ -37,6 +54,9 @@ make build
 ```
 
 The resulting binary is `./bin/agbx`.
+
+Release archives include SHA-256 checksums, detached GPG signatures, and SPDX
+SBOMs. See [release verification](.github/SECURITY.md#verifying-a-release).
 
 ## Quick start
 
@@ -327,10 +347,17 @@ Run `agbx <command> --help` for built-in command options, or
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines. The
 Makefile provides common development commands; run `make help` to list them.
 
-## Security
+## Security model
+
+AGBX configures provider containers with no-new-privileges; normal provider
+runs also drop all Linux capabilities. A network-proxied provider starts as root
+to install the network proxy's CA, then drops to the configured user and clears
+all Linux capability sets before starting the agent.
+
+The isolation model depends on the Docker daemon and the selected base image.
+The agent can modify the current project and any configured writable mounts.
+Network policy and audit apply to traffic sent through the HTTP(S) proxy; they
+do not claim to govern DNS, QUIC, or other traffic that bypasses that proxy.
 
 See [SECURITY.md](.github/SECURITY.md) for vulnerability reporting and release
-verification instructions. All containers disable privilege escalation. Normal
-provider runs also drop all Linux capabilities. A network-proxied provider starts
-as root to install the network proxy's CA, then drops to the configured user and
-clears all Linux capability sets before starting the agent.
+verification instructions.
