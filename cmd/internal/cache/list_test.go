@@ -2,7 +2,6 @@ package cache
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,13 +16,6 @@ import (
 	"github.com/pixel365/agbx/internal/provider"
 )
 
-const (
-	cacheConfig            = "version: 1\nimage:\n  name: example/image\n  tag: 1.0\n  digest: sha256:abc\n"
-	cacheProvider          = "claude"
-	cacheHistoricalImage   = "agbx/prepared-claude:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	cacheUnattributedImage = "agbx/prepared-codex:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-)
-
 func TestListCommandListsProjectAndUnattributedImages(t *testing.T) {
 	directory := t.TempDir()
 	changeWorkingDirectory(t, directory)
@@ -33,7 +25,7 @@ func TestListCommandListsProjectAndUnattributedImages(t *testing.T) {
 
 	providers := provider.NewRegistry()
 	require.NoError(t, providers.Register(cacheTestProvider{}))
-	image := config.Image{Name: "example/image", Tag: "1.0", Digest: "sha256:abc"}
+	image := config.Image{Name: cacheImageName, Tag: cacheImageTag, Digest: cacheImageDigest}
 	recipe := provider.BuildRecipe{Dockerfile: "FROM " + image.Reference()}
 	currentImage := recipe.PreparedImageReference(cacheProvider, image)
 	dockerClient := &recordingDockerClient{images: []docker.PreparedImage{
@@ -96,55 +88,6 @@ func TestListCommandShowsEmptyProjectCache(t *testing.T) {
 	require.NoError(t, command.ExecuteContext(t.Context()))
 	assert.Contains(t, output.String(), "Prepared images: 0")
 	assert.Contains(t, output.String(), "No prepared images are associated with this project.")
-}
-
-type cacheTestProvider struct{}
-
-func (cacheTestProvider) Name() string {
-	return cacheProvider
-}
-
-func (cacheTestProvider) BuildRecipe(image config.Image) (provider.BuildRecipe, error) {
-	return provider.BuildRecipe{Dockerfile: "FROM " + image.Reference()}, nil
-}
-
-func (cacheTestProvider) Command([]string, []config.Mount) ([]string, error) {
-	return nil, nil
-}
-
-type recordingDockerClient struct {
-	images []docker.PreparedImage
-	closed bool
-}
-
-func (client *recordingDockerClient) ListPreparedImages(
-	context.Context,
-) ([]docker.PreparedImage, error) {
-	return client.images, nil
-}
-
-func (client *recordingDockerClient) Close() error {
-	client.closed = true
-
-	return nil
-}
-
-func newDockerClient(client DockerClient) DockerClientFunc {
-	return func() (DockerClient, error) {
-		return client, nil
-	}
-}
-
-func changeWorkingDirectory(t *testing.T, directory string) {
-	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-
-	previousDirectory, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(directory))
-	t.Cleanup(func() {
-		require.NoError(t, os.Chdir(previousDirectory))
-	})
 }
 
 func TestClassifyImagesRecognizesCurrentImage(t *testing.T) {

@@ -53,3 +53,24 @@ func TestLoadReturnsEmptyProjectForMissingIndex(t *testing.T) {
 	assert.Equal(t, indexVersion, index.Version)
 	assert.Empty(t, index.Providers)
 }
+
+func TestAllImageReferencesCollectsProjectIndexes(t *testing.T) {
+	directory := t.TempDir()
+	firstConfigFile := filepath.Join(directory, "first.yaml")
+	secondConfigFile := filepath.Join(directory, "second.yaml")
+	require.NoError(t, os.WriteFile(firstConfigFile, nil, 0o600))
+	require.NoError(t, os.WriteFile(secondConfigFile, nil, 0o600))
+	t.Setenv(stateHomeEnvironmentVariable, t.TempDir())
+
+	require.NoError(t, Record(firstConfigFile, cacheProviderName, cacheFirstImage))
+	require.NoError(t, Record(firstConfigFile, cacheProviderName, cacheSecondImage))
+	require.NoError(t, Record(secondConfigFile, cacheProviderName, cacheFirstImage))
+
+	references, err := AllImageReferences()
+
+	require.NoError(t, err)
+	assert.Contains(t, references.Historical, cacheFirstImage)
+	assert.Contains(t, references.Historical, cacheSecondImage)
+	assert.Contains(t, references.Current, cacheFirstImage)
+	assert.Contains(t, references.Current, cacheSecondImage)
+}

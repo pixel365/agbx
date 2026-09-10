@@ -114,6 +114,18 @@ func (c *Client) ListPreparedImages(ctx context.Context) ([]PreparedImage, error
 	return images, nil
 }
 
+func (c *Client) RemovePreparedImage(ctx context.Context, image PreparedImage) error {
+	target := image.Reference
+	if !image.Tagged {
+		target = image.ImageID
+	}
+	if _, err := c.api.ImageRemove(ctx, target, mobyclient.ImageRemoveOptions{}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *Client) SearchImages(ctx context.Context, term string) ([]SearchResult, error) {
 	result, err := c.api.ImageSearch(
 		ctx,

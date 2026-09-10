@@ -234,6 +234,10 @@ func (availableDockerClient) ListPreparedImages(context.Context) ([]docker.Prepa
 	return nil, nil
 }
 
+func (availableDockerClient) RemovePreparedImage(context.Context, docker.PreparedImage) error {
+	return nil
+}
+
 func availableDockerClientFactory() (dockerClient, error) {
 	return availableDockerClient{}, nil
 }
@@ -264,6 +268,10 @@ func (unavailableDockerClient) HasImage(context.Context, string) (bool, error) {
 
 func (unavailableDockerClient) ListPreparedImages(context.Context) ([]docker.PreparedImage, error) {
 	return nil, nil
+}
+
+func (unavailableDockerClient) RemovePreparedImage(context.Context, docker.PreparedImage) error {
+	return nil
 }
 
 func unavailableDockerClientFactory() (dockerClient, error) {

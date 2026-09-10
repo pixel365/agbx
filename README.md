@@ -63,6 +63,10 @@ to see the current project's prepared images and other AGBX images stored
 locally. Images created by earlier AGBX versions remain visible as legacy or
 unattributed until they are prepared or launched again.
 
+Use `agbx cache prune` to review historical images that are no longer current
+for any known project. It only reports candidates by default; pass `--apply`
+to remove them. Unattributed images are never removed automatically.
+
 ### Built-in tools
 
 Prepared provider images include a portable command-line toolbox in addition to
@@ -310,6 +314,7 @@ used by a provider before adopting a strict `default: deny` policy.
 | `agbx check [-v]`                              | Validate the configuration and check Docker daemon availability. |
 | `agbx prepare <provider> [--force]`            | Prebuild an image; `--force` rebuilds an existing one.           |
 | `agbx cache list`                              | List prepared images associated with the current project.        |
+| `agbx cache prune [--apply]`                   | Review or remove unused historical prepared images.               |
 | `agbx network learn <provider> [arguments...]` | Observe destinations and print a suggested provider allowlist.   |
 | `agbx <provider> [arguments...]`               | Start a provider, preparing its image when needed.               |
 | `agbx version [-v]`                            | Print version metadata.                                          |
