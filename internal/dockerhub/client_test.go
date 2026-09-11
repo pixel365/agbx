@@ -99,6 +99,169 @@ func TestClientResolvesDigest(t *testing.T) {
 	)
 }
 
+func TestClientBearerToken(t *testing.T) {
+	testCases := []struct {
+		name      string
+		body      string
+		want      string
+		wantError string
+		status    int
+	}{
+		{
+			name:   "access token",
+			body:   `{"access_token":"test-token"}`,
+			want:   "test-token",
+			status: http.StatusOK,
+		},
+		{
+			name:      "missing token",
+			body:      `{}`,
+			wantError: "has no token",
+			status:    http.StatusOK,
+		},
+		{
+			name:      "invalid response",
+			body:      `{`,
+			wantError: "decode Docker Hub token",
+			status:    http.StatusOK,
+		},
+		{
+			name:      "unexpected status",
+			wantError: "unexpected response status 403 Forbidden",
+			status:    http.StatusForbidden,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			authServer := httptest.NewServer(
+				http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+					assert.Equal(t, http.MethodGet, request.Method)
+					assert.Equal(t, registryService, request.URL.Query().Get("service"))
+					assert.Equal(
+						t,
+						"repository:library/golang:pull",
+						request.URL.Query().Get("scope"),
+					)
+					response.WriteHeader(testCase.status)
+					_, _ = fmt.Fprint(response, testCase.body)
+				}),
+			)
+			t.Cleanup(authServer.Close)
+
+			authURL, err := url.Parse(authServer.URL)
+			require.NoError(t, err)
+			client := newClient(authServer.Client(), authURL, nil)
+
+			token, err := client.bearerToken(t.Context(), "library/golang")
+
+			if testCase.wantError != "" {
+				require.ErrorContains(t, err, testCase.wantError)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, testCase.want, token)
+		})
+	}
+}
+
+func TestNextLink(t *testing.T) {
+	testCases := []struct {
+		name  string
+		link  string
+		want  string
+		found bool
+	}{
+		{
+			name:  "next link",
+			link:  `</v2/library/golang/tags/list?last=latest>; rel="next"`,
+			want:  "/v2/library/golang/tags/list?last=latest",
+			found: true,
+		},
+		{
+			name: "next link after another relation",
+			link: `</v2/library/golang/tags/list?last=1.27>; rel="last", ` +
+				`</v2/library/golang/tags/list?last=latest>; rel="next"`,
+			want:  "/v2/library/golang/tags/list?last=latest",
+			found: true,
+		},
+		{
+			name: "no next link",
+			link: `</v2/library/golang/tags/list?last=1.27>; rel="last"`,
+		},
+		{
+			name:  "malformed next link",
+			link:  `/v2/library/golang/tags/list?last=latest; rel="next"`,
+			found: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, found := nextLink(testCase.link)
+
+			assert.Equal(t, testCase.found, found)
+			assert.Equal(t, testCase.want, got)
+		})
+	}
+}
+
+func TestNextPageURL(t *testing.T) {
+	registryURL, err := url.Parse("https://registry.example.test")
+	require.NoError(t, err)
+	client := newClient(&http.Client{}, nil, registryURL)
+	testCases := []struct {
+		name      string
+		link      string
+		want      string
+		wantError string
+	}{
+		{
+			name: "no next link",
+		},
+		{
+			name: "relative next link",
+			link: `</v2/library/golang/tags/list?last=latest>; rel="next"`,
+			want: "https://registry.example.test/v2/library/golang/tags/list?last=latest",
+		},
+		{
+			name: "same origin absolute next link",
+			link: `<https://registry.example.test/v2/library/golang/tags/list?last=latest>; rel="next"`,
+			want: "https://registry.example.test/v2/library/golang/tags/list?last=latest",
+		},
+		{
+			name:      "foreign origin",
+			link:      `<https://unexpected.example.test/v2/tags/list>; rel="next"`,
+			wantError: "unexpected origin",
+		},
+		{
+			name:      "invalid URL",
+			link:      `<http://[::1>; rel="next"`,
+			wantError: "parse Docker Hub next page URL",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := client.nextPageURL(testCase.link)
+
+			if testCase.wantError != "" {
+				require.ErrorContains(t, err, testCase.wantError)
+
+				return
+			}
+			require.NoError(t, err)
+			if testCase.want == "" {
+				assert.Nil(t, got)
+
+				return
+			}
+			assert.Equal(t, testCase.want, got.String())
+		})
+	}
+}
+
 func TestRepositoryPath(t *testing.T) {
 	testCases := []struct {
 		name      string
