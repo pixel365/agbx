@@ -29,8 +29,14 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Run go vet
+        run: go vet ./...
+
       - name: Run tests
         run: go test -race ./...
+
+      - name: Scan for known vulnerabilities
+        run: go tool govulncheck ./...
 
       - name: Install golangci-lint
         env:
@@ -50,6 +56,22 @@ jobs:
 
       - name: Check formatting
         run: golangci-lint fmt --diff
+
+      - name: Check struct field alignment
+        run: |
+          make fieldalignment
+          if ! git diff --stat --exit-code -- ':(glob)**/*.go'; then
+            echo "Struct field alignment is outdated; run 'make fieldalignment' and commit the result" >&2
+            exit 1
+          fi
+
+      - name: Check source formatters
+        run: |
+          make formatters
+          if ! git diff --stat --exit-code -- ':(glob)**/*.go'; then
+            echo "Source formatting is outdated; run 'make formatters' and commit the result" >&2
+            exit 1
+          fi
 
       - name: Install GoReleaser
         env:

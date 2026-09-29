@@ -39,3 +39,32 @@ jobs:
 
       - name: Check formatting
         run: golangci-lint fmt --diff
+
+  source-transformations:
+    name: Source transformations
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+
+      - name: Set up Go
+        uses: actions/setup-go@e626ada899467caf4efc6cfd0484b965da944ce8
+        with:
+          go-version-file: go.mod
+
+      - name: Check struct field alignment
+        run: |
+          make fieldalignment
+          if ! git diff --stat --exit-code -- ':(glob)**/*.go'; then
+            echo "Struct field alignment is outdated; run 'make fieldalignment' and commit the result" >&2
+            exit 1
+          fi
+
+      - name: Check source formatters
+        run: |
+          make formatters
+          if ! git diff --stat --exit-code -- ':(glob)**/*.go'; then
+            echo "Source formatting is outdated; run 'make formatters' and commit the result" >&2
+            exit 1
+          fi

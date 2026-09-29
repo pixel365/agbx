@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X $(VERSION_PKG).commit=$(COMMIT) \
 	-X $(VERSION_PKG).releaseDate=$(RELEASE_DATE)
 
-.PHONY: build test integration vet lint tidy fieldalignment goimports golines gofmt fix formatters check help
+.PHONY: build test integration vet lint tidy fieldalignment goimports golines govulncheck gofmt fix formatters check help
 
 ## all: Synchronize dependencies and format source code
 all: tidy fieldalignment formatters
@@ -20,7 +20,7 @@ all: tidy fieldalignment formatters
 formatters: goimports gofmt golines fix
 
 ## check: Run linting, static checks, and tests
-check: lint vet test
+check: lint vet test govulncheck
 
 ## build: Build the agbx binary
 build:
@@ -48,15 +48,19 @@ tidy:
 
 ## fieldalignment: Optimize struct field alignment
 fieldalignment:
-	@$@ -fix ./...
+	@go tool $@ -fix ./...
 
 ## goimports: Format imports
 goimports:
-	@$@ -w -local github.com/pixel365/agbx $(GO_CONTENT)
+	@go tool $@ -w -local github.com/pixel365/agbx $(GO_CONTENT)
 
 ## golines: Wrap long Go source lines
 golines:
-	@$@ -w $(GO_CONTENT)
+	@go tool $@ -m 120 -w $(GO_CONTENT)
+
+## govulncheck: Scan dependencies for known vulnerabilities
+govulncheck:
+	@go tool $@ ./...
 
 ## gofmt: Format Go source code
 gofmt:

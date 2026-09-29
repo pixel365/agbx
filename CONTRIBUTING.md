@@ -4,11 +4,12 @@ Thank you for your interest in contributing to [agbx](https://github.com/pixel36
 
 ## General Guidelines
 
-- Install the following tools for testing and verification before contributing:
-  - [field alignment](https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/fieldalignment)
+- Install [golangci-lint](https://github.com/golangci/golangci-lint) for linting before contributing.
+- The other development tools are pinned in `go.mod` as Go tools and run via `go tool` (through `make`), so they need no separate installation:
+  - [fieldalignment](https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/fieldalignment)
   - [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports)
-  - [golines](https://github.com/segmentio/golines)
-  - [golangci-lint](https://github.com/golangci/golangci-lint)
+  - [golines](https://github.com/golangci/golines)
+  - [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)
 - Read the [README.md](README.md) and documentation before starting.
 - Ensure your code follows Go's style (`gofmt`, `golangci-lint` and `golines`).
 - Keep the code readable and add comments where necessary.
@@ -21,9 +22,10 @@ Thank you for your interest in contributing to [agbx](https://github.com/pixel36
    git checkout -b feature/my-feature
    ```
 2. **Develop your changes**, ensuring tests and documentation are updated.
-3. **Run checks** before committing:
+3. **Format the code and run checks** before committing:
    ```sh
    make
+   make check
    ```
 4. **Commit your changes** with a meaningful message:
    ```sh
