@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
 
       - name: Set up Go
-        uses: actions/setup-go@e626ada899467caf4efc6cfd0484b965da944ce8
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version-file: go.mod
 
@@ -49,7 +49,7 @@ jobs:
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
 
       - name: Set up Go
-        uses: actions/setup-go@e626ada899467caf4efc6cfd0484b965da944ce8
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version-file: go.mod
 
