@@ -134,7 +134,7 @@ func contextHost(configDirectory string, contextName string) (string, error) {
 		"meta.json",
 	)
 	metadataFile = filepath.Clean(metadataFile)
-	// #nosec G304 -- Docker context metadata is read from the selected Docker CLI configuration directory.
+	// #nosec G304 G703 -- Docker context metadata is read from the selected Docker CLI configuration directory.
 	contents, err := os.ReadFile(metadataFile)
 	if err != nil {
 		return "", fmt.Errorf("read Docker context %q: %w", contextName, err)

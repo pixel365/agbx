@@ -244,7 +244,7 @@ func providerStateDirectory(providerName string) (string, error) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", fmt.Errorf("create provider state directory %q: %w", directory, err)
 	}
-	// #nosec G302 -- This directory stores provider authentication state and requires execute permission.
+	// #nosec G302 G703 -- This directory stores provider authentication state and requires execute permission.
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return "", fmt.Errorf("set provider state directory permissions %q: %w", directory, err)
 	}

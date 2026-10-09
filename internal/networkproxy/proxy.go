@@ -515,7 +515,7 @@ func ensureDirectory(directory string) error {
 	if !info.IsDir() {
 		return errors.New("path is not a directory")
 	}
-	// #nosec G302 -- Audit directories require execute permission for the owning user.
+	// #nosec G302 G703 -- Audit directories require execute permission for the owning user.
 	if err := os.Chmod(directory, 0o700); err != nil {
 		return err
 	}
