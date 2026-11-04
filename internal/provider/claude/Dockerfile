@@ -1,4 +1,4 @@
-ARG CLAUDE_VERSION=2.1.267
+ARG CLAUDE_VERSION=2.1.318
 
 RUN npm install --global @anthropic-ai/claude-code@${CLAUDE_VERSION}
 
