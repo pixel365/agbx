@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["custom.regex"],
+  "includePaths": [
+    "internal/provider/claude/Dockerfile",
+    "internal/provider/codex/Dockerfile"
+  ],
+  "timezone": "UTC",
+  "schedule": ["* 6-9 * * *"],
+  "ignoreUnstable": true,
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+ARG [A-Z_]+=(?<currentValue>[^\\s]+)"
+      ]
+    }
+  ]
+}

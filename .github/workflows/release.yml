@@ -7,11 +7,65 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
+    types: [closed]
 
 jobs:
+  prepare:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == github.event.repository.default_branch &&
+       github.event.pull_request.user.login == 'renovate[bot]' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.pull_request.head.ref, 'renovate/'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should_release: ${{ steps.prepare.outputs.should_release }}
+      ref: ${{ steps.prepare.outputs.ref }}
+    steps:
+      - name: Check release source
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RELEASE_REF: ${{ github.event.pull_request.merge_commit_sha || github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            files="$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+              --jq '.[].filename')"
+            if [ -z "$files" ]; then
+              echo "Provider update has no changed files" >&2
+              exit 1
+            fi
+            while IFS= read -r file; do
+              case "$file" in
+                internal/provider/claude/Dockerfile|internal/provider/codex/Dockerfile) ;;
+                *)
+                  echo "Skipping automatic release: PR also changes ${file}"
+                  exit 0
+                  ;;
+              esac
+            done <<< "$files"
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "ref=${RELEASE_REF}" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment: release
+    concurrency:
+      group: release
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -19,6 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
+          ref: ${{ needs.prepare.outputs.ref }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -34,6 +89,10 @@ jobs:
 
       - name: Run tests
         run: go test -race ./...
+
+      - name: Run Docker integration tests
+        if: github.event_name == 'pull_request'
+        run: go test -tags=integration -v ./internal/docker
 
       - name: Scan for known vulnerabilities
         run: go tool govulncheck ./...
@@ -102,7 +161,67 @@ jobs:
           rm "${syft_archive}"
           sudo mv "${RUNNER_TEMP}/syft/syft" /usr/local/bin/
 
+      - name: Prepare release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch --tags origin
+          tags="$(git tag --list --sort=-version:refname)"
+          latest_tag=""
+          while IFS= read -r tag; do
+            if [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              latest_tag="$tag"
+              major="${BASH_REMATCH[1]}"
+              minor="${BASH_REMATCH[2]}"
+              patch="${BASH_REMATCH[3]}"
+              break
+            fi
+          done <<< "$tags"
+          if [ -z "$latest_tag" ]; then
+            echo "Cannot determine the next patch version: no stable vX.Y.Z tag exists" >&2
+            exit 1
+          fi
+
+          head_commit="$(git rev-parse HEAD)"
+          tagged_commit="$(git rev-parse "${latest_tag}^{commit}")"
+          if [ "$head_commit" = "$tagged_commit" ]; then
+            published_tags="$(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases" \
+              --jq '.[] | select(.draft == false) | .tag_name')"
+            while IFS= read -r published_tag; do
+              if [ "$published_tag" = "$latest_tag" ]; then
+                echo "Skipping automatic release: ${latest_tag} is already published"
+                exit 0
+              fi
+            done <<< "$published_tags"
+            echo "Resuming release for ${latest_tag}"
+            release_tag="$latest_tag"
+          elif git merge-base --is-ancestor HEAD "$latest_tag"; then
+            echo "Skipping automatic release: ${latest_tag} already includes this update"
+            exit 0
+          elif git merge-base --is-ancestor "$latest_tag" HEAD; then
+            next_tag="v${major}.${minor}.$((10#$patch + 1))"
+            git tag "$next_tag" "$head_commit"
+            git push origin "refs/tags/${next_tag}"
+            release_tag="$next_tag"
+          else
+            echo "Latest stable tag ${latest_tag} is outside the release commit history" >&2
+            exit 1
+          fi
+          echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
       - name: Import GPG key
+        if: steps.tag.outputs.publish == 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.gnupg
@@ -116,9 +235,11 @@ jobs:
           gpg --batch --list-secret-keys "${GPG_FINGERPRINT}" > /dev/null
 
       - name: Run GoReleaser
+        if: steps.tag.outputs.publish == 'true'
         run: |
           "${RUNNER_TEMP}/goreleaser/goreleaser" release --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.tag }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GPG_TTY: dummy
