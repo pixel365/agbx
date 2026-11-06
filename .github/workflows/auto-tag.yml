@@ -1,0 +1,132 @@
+name: Auto tag
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: write
+
+concurrency:
+  group: auto-tag
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Check changed files
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          files="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename')"
+
+          if [ -z "$files" ]; then
+            echo "No changed files found" >&2
+            exit 1
+          fi
+
+          while IFS= read -r file; do
+            case "$file" in
+              internal/provider/claude/Dockerfile|internal/provider/codex/Dockerfile)
+                ;;
+              *)
+                echo "Skipping release: unrelated file $file"
+                echo "eligible=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          done <<< "$files"
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and trigger release
+        if: steps.check.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch --tags origin
+
+          head_commit="$(git rev-parse HEAD)"
+
+          latest_tag=""
+          major=""
+          minor=""
+          patch=""
+
+          while IFS= read -r candidate; do
+            if [[ "$candidate" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              latest_tag="$candidate"
+              major="${BASH_REMATCH[1]}"
+              minor="${BASH_REMATCH[2]}"
+              patch="${BASH_REMATCH[3]}"
+              break
+            fi
+          done < <(git tag --list --sort=-version:refname)
+
+          if [ -z "$latest_tag" ]; then
+            echo "No stable vX.Y.Z tag found" >&2
+            exit 1
+          fi
+
+          tagged_commit="$(git rev-parse "${latest_tag}^{commit}")"
+
+          if [ "$head_commit" = "$tagged_commit" ]; then
+            echo "Commit already tagged as ${latest_tag}"
+            release_tag="$latest_tag"
+
+          elif git merge-base --is-ancestor HEAD "$latest_tag"; then
+            echo "Skipping: update already included in ${latest_tag}"
+            exit 0
+
+          elif git merge-base --is-ancestor "$latest_tag" HEAD; then
+            release_tag="v${major}.${minor}.$((10#$patch + 1))"
+
+            echo "Creating tag ${release_tag}"
+
+            git tag "${release_tag}" "${head_commit}"
+            git push origin "refs/tags/${release_tag}"
+
+          else
+            echo "Latest tag is outside the commit history" >&2
+            exit 1
+          fi
+
+          # Avoid publishing an existing completed release again.
+          if gh release view "${release_tag}" \
+            --json isDraft \
+            --jq '.isDraft' 2>/dev/null | grep -qx false; then
+            echo "Release ${release_tag} already published"
+            exit 0
+          fi
+
+          echo "Triggering release for ${release_tag}"
+
+          gh workflow run release.yml \
+            --ref "${release_tag}"
+
+          echo "Release workflow dispatched for ${release_tag}"

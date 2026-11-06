@@ -1,65 +1,16 @@
 name: Release
 
-permissions:
-  contents: read
-
 on:
   push:
     tags:
       - "v*"
-  pull_request:
-    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  prepare:
-    if: >-
-      github.event_name == 'push' ||
-      (github.event.pull_request.merged == true &&
-       github.event.pull_request.base.ref == github.event.repository.default_branch &&
-       github.event.pull_request.user.login == 'renovate[bot]' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       startsWith(github.event.pull_request.head.ref, 'renovate/'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      should_release: ${{ steps.prepare.outputs.should_release }}
-      ref: ${{ steps.prepare.outputs.ref }}
-    steps:
-      - name: Check release source
-        id: prepare
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RELEASE_REF: ${{ github.event.pull_request.merge_commit_sha || github.ref }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            files="$(gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              --jq '.[].filename')"
-            if [ -z "$files" ]; then
-              echo "Provider update has no changed files" >&2
-              exit 1
-            fi
-            while IFS= read -r file; do
-              case "$file" in
-                internal/provider/claude/Dockerfile|internal/provider/codex/Dockerfile) ;;
-                *)
-                  echo "Skipping automatic release: PR also changes ${file}"
-                  exit 0
-                  ;;
-              esac
-            done <<< "$files"
-          fi
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-          echo "ref=${RELEASE_REF}" >> "$GITHUB_OUTPUT"
-
   release:
-    needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     environment: release
     concurrency:
@@ -70,16 +21,31 @@ jobs:
       contents: write
     env:
       GPG_FINGERPRINT: 59E2D7E1C4AEFA9F891A5845C5EE073709C7B615
+
     steps:
-      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
         with:
-          ref: ${{ needs.prepare.outputs.ref }}
           fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@7d2730e317c8366225b42fced34583b26440a9cc
         with:
           go-version-file: go.mod
+
+      - name: Validate release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GITHUB_REF" =~ ^refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release must run from a stable version tag (vX.Y.Z)" >&2
+            exit 1
+          fi
+
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${GITHUB_REF_NAME}"
 
       - name: Build
         run: go build ./...
@@ -91,7 +57,6 @@ jobs:
         run: go test -race ./...
 
       - name: Run Docker integration tests
-        if: github.event_name == 'pull_request'
         run: go test -tags=integration -v ./internal/docker
 
       - name: Scan for known vulnerabilities
@@ -103,7 +68,8 @@ jobs:
           GOLANGCI_LINT_SHA256: "ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab"
         run: |
           set -euo pipefail
-          curl -sSLo golangci-lint.tar.gz \
+
+          curl -fsSLo golangci-lint.tar.gz \
             "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
           echo "${GOLANGCI_LINT_SHA256}  golangci-lint.tar.gz" | sha256sum -c -
           tar -xzf golangci-lint.tar.gz -C /tmp
@@ -139,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           goreleaser_archive="${RUNNER_TEMP}/goreleaser.tar.gz"
-          curl -sSLo "${goreleaser_archive}" \
+          curl -fsSLo "${goreleaser_archive}" \
             "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz"
           echo "${GORELEASER_SHA256}  ${goreleaser_archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/goreleaser"
@@ -153,7 +119,7 @@ jobs:
         run: |
           set -euo pipefail
           syft_archive="${RUNNER_TEMP}/syft.tar.gz"
-          curl -sSLo "${syft_archive}" \
+          curl -fsSLo "${syft_archive}" \
             "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
           echo "${SYFT_SHA256}  ${syft_archive}" | sha256sum -c -
           mkdir -p "${RUNNER_TEMP}/syft"
@@ -161,72 +127,14 @@ jobs:
           rm "${syft_archive}"
           sudo mv "${RUNNER_TEMP}/syft/syft" /usr/local/bin/
 
-      - name: Prepare release tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "push" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          git fetch --tags origin
-          tags="$(git tag --list --sort=-version:refname)"
-          latest_tag=""
-          while IFS= read -r tag; do
-            if [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              latest_tag="$tag"
-              major="${BASH_REMATCH[1]}"
-              minor="${BASH_REMATCH[2]}"
-              patch="${BASH_REMATCH[3]}"
-              break
-            fi
-          done <<< "$tags"
-          if [ -z "$latest_tag" ]; then
-            echo "Cannot determine the next patch version: no stable vX.Y.Z tag exists" >&2
-            exit 1
-          fi
-
-          head_commit="$(git rev-parse HEAD)"
-          tagged_commit="$(git rev-parse "${latest_tag}^{commit}")"
-          if [ "$head_commit" = "$tagged_commit" ]; then
-            published_tags="$(gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/releases" \
-              --jq '.[] | select(.draft == false) | .tag_name')"
-            while IFS= read -r published_tag; do
-              if [ "$published_tag" = "$latest_tag" ]; then
-                echo "Skipping automatic release: ${latest_tag} is already published"
-                exit 0
-              fi
-            done <<< "$published_tags"
-            echo "Resuming release for ${latest_tag}"
-            release_tag="$latest_tag"
-          elif git merge-base --is-ancestor HEAD "$latest_tag"; then
-            echo "Skipping automatic release: ${latest_tag} already includes this update"
-            exit 0
-          elif git merge-base --is-ancestor "$latest_tag" HEAD; then
-            next_tag="v${major}.${minor}.$((10#$patch + 1))"
-            git tag "$next_tag" "$head_commit"
-            git push origin "refs/tags/${next_tag}"
-            release_tag="$next_tag"
-          else
-            echo "Latest stable tag ${latest_tag} is outside the release commit history" >&2
-            exit 1
-          fi
-          echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-
       - name: Import GPG key
-        if: steps.tag.outputs.publish == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.gnupg
           chmod 700 ~/.gnupg
-          printf '%s\n' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          printf '%s\n' "${GPG_PRIVATE_KEY}" | gpg --batch --import
           echo "use-agent" >> ~/.gnupg/gpg.conf
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
@@ -235,11 +143,12 @@ jobs:
           gpg --batch --list-secret-keys "${GPG_FINGERPRINT}" > /dev/null
 
       - name: Run GoReleaser
-        if: steps.tag.outputs.publish == 'true'
-        run: |
-          "${RUNNER_TEMP}/goreleaser/goreleaser" release --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.tag }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GPG_TTY: dummy
+        run: |
+          set -euo pipefail
+
+          "${RUNNER_TEMP}/goreleaser/goreleaser" release --clean
