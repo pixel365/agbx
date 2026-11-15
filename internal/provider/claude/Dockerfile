@@ -1,5 +1,5 @@
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_VERSION=2.1.323
+ARG CLAUDE_VERSION=2.1.325
 
 RUN npm install --global @anthropic-ai/claude-code@${CLAUDE_VERSION}
 
