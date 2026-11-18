@@ -1,5 +1,5 @@
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.169.0
+ARG CODEX_VERSION=0.170.0
 
 RUN npm install --global @openai/codex@${CODEX_VERSION}
 
